@@ -15,6 +15,23 @@ const KEY = "sqld.v1";
 let S = { log: {}, wrong: [], known: [], theme: "", mock: null, hist: [] };
 try { Object.assign(S, JSON.parse(localStorage.getItem(KEY) || "{}")); } catch (e) {}
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} };
+const DAY = 864e5;
+
+// 문제은행 변화 감지: 지난번에 없던 문항 = '새로 추가된 문제'
+// (처음 온 사람에게는 표시하지 않는다. 이 기능 이전에 쓰던 사람은 첫 81문항을 본 것으로 본다)
+(function () {
+  const ids = QB.map(q => q.id);
+  S.added = S.added || {};
+  if (!Array.isArray(S.bank)) {
+    const used = Object.keys(S.log || {}).length || (S.hist || []).length;
+    S.bank = used ? ids.filter(id => /^(M(0\d|1[0-6])|S([0-5]\d|6[0-5]))$/.test(id)) : ids.slice();
+  }
+  const known = new Set(S.bank), now = Date.now();
+  ids.filter(id => !known.has(id)).forEach(id => { if (!S.added[id]) S.added[id] = now; });
+  S.bank = ids.slice();
+  save();
+})();
+const isAdded = q => !!S.added[q.id] && !S.log[q.id] && Date.now() - S.added[q.id] < 60 * DAY;
 
 // ── 공통 도구
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -78,9 +95,14 @@ const lvTag = lv => `<span class="tag lv">난이도 ${"●".repeat(lv)}${"○".r
 
 // ── 통계
 function record(q, pick) {
-  const ok = pick === q.a, L = S.log[q.id] || { n: 0, ok: 0 };
-  L.n++; if (ok) L.ok++; L.last = ok ? 1 : 0; S.log[q.id] = L;
+  const ok = pick === q.a, L = S.log[q.id] || { n: 0, ok: 0 }, now = Date.now();
+  L.n++; if (ok) L.ok++; L.last = ok ? 1 : 0; L.t = now;
+  // 간격 반복: 틀리면 내일 다시, 맞히면 3 → 7 → 14 → 30일 (처음부터 맞히면 3일)
+  if (ok) { L.streak = (L.streak || 0) + 1; const days = L.n === 1 ? 3 : [1, 3, 7, 14, 30][Math.min(L.streak - 1, 4)]; L.due = now + days * DAY; }
+  else { L.streak = 0; L.due = now + DAY; }
+  S.log[q.id] = L;
   if (!ok && !S.wrong.includes(q.id)) S.wrong.push(q.id);
+  if (ok && L.streak >= 2) S.wrong = S.wrong.filter(x => x !== q.id); // 연속 두 번 맞히면 오답노트 졸업
   save(); stats();
   return ok;
 }
@@ -139,7 +161,48 @@ function bindConceptLinks(root) {
 }
 
 // ── 문제풀이 / 오답노트
-let quiz = { subj: 0, sub: "", order: "seq", kill: false, list: [], i: 0, pick: null, wrongMode: false };
+// ── 추천: 내 기록을 보고 다음 문제를 고른다 (무작위 아님)
+const dueOf = L => L.due != null ? L.due : (L.last === 0 ? 0 : (L.t || 0) + 3 * DAY);
+const ago = t => { if (!t) return ""; const d = Math.floor((Date.now() - t) / DAY); return d <= 0 ? "오늘" : d + "일 전"; };
+function subStats() {
+  const by = {};
+  for (const [id, L] of Object.entries(S.log)) { const q = byId[id]; if (!q) continue; const t = by[subOf(q)] = by[subOf(q)] || { n: 0, ok: 0 }; t.n += L.n; t.ok += L.ok; }
+  return by;
+}
+const tpFreq = (() => { const m = {}; let mx = 1; for (const [k, d] of Object.entries(TREND.data)) { m[k] = d.reduce((a, b) => a + b, 0); mx = Math.max(mx, m[k]); } for (const k in m) m[k] /= mx; return m; })();
+// 문항 하나가 지금 나오는 이유 { k: 종류, t: 화면에 보일 말, p: 우선순위 }
+function reasonFor(q, st, now) {
+  const L = S.log[q.id];
+  if (L) {
+    const due = dueOf(L), when = L.t ? ` · 마지막 풀이 ${ago(L.t)}` : "";
+    if (L.last === 0) return due <= now
+      ? { k: "wrong", t: `오답 복습 — 지난번에 틀린 문제 (${L.n}번 중 ${L.ok}번 정답)${when}`, p: 3 + (now - due) / DAY / 100 }
+      : { k: "ahead", t: `오답 복습(예정보다 일찍) — 내일 다시 나올 문제${when}`, p: -1 };
+    if (due <= now) return { k: "review", t: `간격 복습 — 맞혔던 문제를 ${Math.max(1, Math.round((now - (L.t || now)) / DAY))}일 만에 다시 (연속 ${L.streak || 1}번 정답)`, p: 2 };
+    return { k: "ahead", t: `미리 복습 — 원래 ${Math.max(1, Math.ceil((due - now) / DAY))}일 뒤에 다시 나올 문제`, p: -2 + (L.ok / L.n) * -1 };
+  }
+  const sb = st[subOf(q)], acc = sb && sb.n >= 2 ? sb.ok / sb.n : null;
+  const p = 1 + (acc == null ? .5 : 1 - acc) + (isKill(q) ? .3 : 0) + (tpFreq[q.tp] || 0) * .3 + (isAdded(q) ? .4 : 0);
+  if (isAdded(q)) return { k: "added", t: `새로 추가된 문제 — 지난 방문 뒤에 들어온 문항`, p };
+  if (acc != null && acc < .6) return { k: "weak", t: `약점 보강 — '${subOf(q)}' 정답률 ${Math.round(acc * 100)}%`, p };
+  if (isKill(q)) return { k: "kill", t: `처음 푸는 고오답 유형`, p };
+  return { k: "new", t: `처음 푸는 문제`, p };
+}
+// 추천 순서: 밀린 오답 → (새 문제 2 : 복습 1) 섞기 → 아직 때가 안 된 문제는 맨 뒤
+function recommend(pool) {
+  const st = subStats(), now = Date.now(), why = {};
+  const R = pool.map(q => ({ q, r: reasonFor(q, st, now) }));
+  R.forEach(x => why[x.q.id] = x.r);
+  const by = k => R.filter(x => x.r.k === k).sort((a, b) => b.r.p - a.r.p || a.q.id.localeCompare(b.q.id, "en", { numeric: true }));
+  const W = by("wrong"), V = by("review"), N = R.filter(x => ["added", "weak", "kill", "new"].includes(x.r.k)).sort((a, b) => b.r.p - a.r.p || a.q.id.localeCompare(b.q.id, "en", { numeric: true })), A = by("ahead");
+  const out = W.splice(0, 3);
+  while (W.length || V.length || N.length) { for (const src of [N, N, W, V]) if (src.length) out.push(src.shift()); }
+  out.push(...A);
+  return { ids: out.map(x => x.q.id), why, counts: { wrong: R.filter(x => x.r.k === "wrong").length, review: R.filter(x => x.r.k === "review").length, added: R.filter(x => x.r.k === "added").length, fresh: R.filter(x => ["weak", "kill", "new"].includes(x.r.k)).length } };
+}
+const REASON_STYLE = { wrong: "kill", ahead: "lv", review: "rv", added: "new", weak: "kill", kill: "kill", new: "lv", again: "kill" };
+const REASON_ICON = { wrong: "↺", ahead: "◷", review: "◷", added: "＋", weak: "◎", kill: "!", new: "·", again: "↺" };
+let quiz = { subj: 0, sub: "", order: "rec", kill: false, list: [], i: 0, pick: null, wrongMode: false, why: {}, counts: null };
 function poolFor() {
   if (quiz.wrongMode) return S.wrong.map(id => byId[id]).filter(Boolean);
   return QB.filter(q => (!quiz.subj || q.s === quiz.subj) && (!quiz.kill || isKill(q)));
@@ -148,8 +211,13 @@ function buildList() {
   let L = poolFor().filter(q => !quiz.sub || subOf(q) === quiz.sub);
   if (!quiz.wrongMode && quiz.order === "new") L = L.filter(q => !S.log[q.id]);
   if (!quiz.wrongMode && quiz.order === "missed") L = L.filter(q => S.log[q.id] && S.log[q.id].ok < S.log[q.id].n);
+  quiz.why = {}; quiz.counts = null; quiz.again = {};
+  if (!quiz.wrongMode && quiz.order === "rec") { const r = recommend(L); quiz.list = r.ids; quiz.why = r.why; quiz.counts = r.counts; quiz.i = 0; quiz.pick = null; return; }
   if (quiz.order === "rand") L = shuffle(L);
+  else if (quiz.wrongMode) L.sort((a, b) => (S.log[a.id] ? S.log[a.id].ok / S.log[a.id].n : 0) - (S.log[b.id] ? S.log[b.id].ok / S.log[b.id].n : 0) || dueOf(S.log[a.id] || {}) - dueOf(S.log[b.id] || {}));
   else { const o = SUBS.map(x => x.n); L.sort((a, b) => a.s - b.s || o.indexOf(subOf(a)) - o.indexOf(subOf(b)) || a.id.localeCompare(b.id, "en", { numeric: true })); }
+  const st = subStats(), now = Date.now();
+  L.forEach(q => { quiz.why[q.id] = quiz.wrongMode ? { k: "wrong", t: `오답노트 — ${S.log[q.id] ? `${S.log[q.id].n}번 중 ${S.log[q.id].ok}번 정답 · 마지막 풀이 ${ago(S.log[q.id].t) || "기록 없음"}` : "틀린 문제"}` } : reasonFor(q, st, now); });
   quiz.list = L.map(q => q.id); quiz.i = 0; quiz.pick = null;
 }
 function quizView(wrongMode) {
@@ -188,8 +256,10 @@ function renderQuiz() {
     ${wm ? weakBars() : `<div class="seg" role="group" aria-label="과목">${["전체", "1과목 모델링", "2과목 SQL"].map((t, i) => `<button data-subj="${i}" aria-pressed="${quiz.subj === i}">${t}</button>`).join("")}</div>`}
     <div class="filters">
       <label class="field"><span>세부항목 (공식 출제기준)</span><select id="f-sub">${subSelect(pool)}</select></label>
-      ${wm ? "" : `<label class="field"><span>풀이 순서</span><select id="f-order">${[["seq", "출제기준 순서"], ["rand", "무작위"], ["new", "안 푼 문제만"], ["missed", "한 번이라도 틀린 문제"]].map(([k, t]) => `<option value="${k}" ${quiz.order === k ? "selected" : ""}>${t}</option>`).join("")}</select></label>`}
+      ${wm ? "" : `<label class="field"><span>풀이 순서</span><select id="f-order">${[["rec", "추천 — 내 기록 기반 (복습 + 새 문제)"], ["seq", "출제기준 순서"], ["new", "안 푼 문제만"], ["missed", "한 번이라도 틀린 문제"], ["rand", "무작위"]].map(([k, t]) => `<option value="${k}" ${quiz.order === k ? "selected" : ""}>${t}</option>`).join("")}</select></label>`}
     </div>
+    ${!wm && quiz.counts ? `<div class="plan"><span><b>${quiz.counts.wrong}</b>오답 복습</span><span><b>${quiz.counts.review}</b>간격 복습</span><span><b>${quiz.counts.added}</b>새로 추가</span><span><b>${quiz.counts.fresh}</b>처음 푸는 문제</span></div>
+    <p class="small muted">추천 순서는 무작위가 아니다. 복습할 때가 된 오답을 먼저 내고, 새 문제는 정답률이 낮은 세부항목·고오답 유형·자주 나오는 주제 순으로, 새 문제 2개마다 복습 1개를 섞는다. 틀린 문제는 몇 문제 뒤에 한 번 더 나오고 다음 날 다시 나온다.</p>` : ""}
     ${wm ? "" : `<div class="row"><button class="toggle" id="f-kill" aria-pressed="${quiz.kill}"><span class="box">${quiz.kill ? "✓" : ""}</span>고오답 유형만 풀기 (${QB.filter(isKill).length}문항)</button></div>`}
   </section>`;
   if (!q) {
@@ -200,6 +270,7 @@ function renderQuiz() {
   html += `<section class="panel frame" id="qcard">
     <div class="spread"><span class="eyebrow">${quiz.i + 1} / ${quiz.list.length}</span>${S.log[id] ? `<span class="small muted">내 기록 ${S.log[id].ok}/${S.log[id].n} 정답</span>` : ""}</div>
     <div class="meter"><i style="width:${(quiz.i + 1) / quiz.list.length * 100}%"></i></div>
+    ${quiz.why[id] ? `<div class="why-tag ${REASON_STYLE[quiz.why[id].k] || "lv"}"><i>${REASON_ICON[quiz.why[id].k] || "·"}</i><span>${esc(quiz.why[id].t)}</span></div>` : ""}
     ${body}
     <div class="opts">${q.o.map((t, i) => {
       const cls = quiz.pick == null ? "" : i === q.a ? "right" : i === quiz.pick ? "wrong" : "";
@@ -222,12 +293,19 @@ function choose(i) {
   const exp = view.querySelector(".exp"); if (exp) exp.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 function go(d) {
+  const cur = quiz.list[quiz.i];
+  if (d > 0 && !quiz.wrongMode && quiz.pick != null && quiz.pick !== byId[cur].a && !quiz.list.slice(quiz.i + 1, quiz.i + 6).includes(cur)) {
+    quiz.list.splice(Math.min(quiz.list.length, quiz.i + 5), 0, cur); // 방금 틀린 문제는 4문제 뒤에 한 번 더
+    quiz.again = quiz.again || {}; quiz.again[quiz.i + 5] = true;
+  }
   const n = quiz.i + d;
   if (quiz.wrongMode && quiz.pick != null && !S.wrong.includes(quiz.list[quiz.i])) { // 맞혀서 빠진 문제는 목록에서 정리
     quiz.list.splice(quiz.i, 1); if (d < 0) quiz.i = Math.max(0, quiz.i - 1); quiz.pick = null; renderQuiz(); top(); return;
   }
   if (n < 0 || n >= quiz.list.length) return;
-  quiz.i = n; quiz.pick = null; renderQuiz(); top();
+  quiz.i = n; quiz.pick = null;
+  if (quiz.again && quiz.again[n]) { delete quiz.again[n]; quiz.why[quiz.list[n]] = { k: "again", t: "방금 틀린 문제 다시 — 4문제 전에 틀린 문항을 한 번 더 확인" }; }
+  renderQuiz(); top();
 }
 const top = () => { const c = document.getElementById("qcard"); if (c) c.scrollIntoView({ block: "start" }); };
 function bindQuizFilters() {
@@ -316,7 +394,7 @@ function cardView() {
 // ── 모의고사 (공식 구성: 1과목 10 + 2과목 40, 90분, 문항당 2점)
 let tick = null;
 const LIMIT = 90 * 60 * 1000;
-const setName = n => n ? `모의고사 ${n}회` : "무작위 모의고사";
+const setName = n => n ? `모의고사 ${n}회` : "맞춤 모의고사";
 function mockView() {
   clearInterval(tick); document.getElementById("exambar").hidden = true;
   const M = S.mock;
@@ -325,15 +403,15 @@ function mockView() {
   const best = n => { const r = S.hist.filter(h => (h.set || 0) === n); return r.length ? Math.max(...r.map(h => h.sc)) : null; };
   const lvTxt = lv => lv < 1.8 ? "기본" : lv < 2.2 ? "중간" : "어려움";
   view.innerHTML = `<section class="panel frame"><div class="eyebrow">05 · 모의고사</div><h2>실전 모의고사</h2>
-    <p class="lead">공식 시험과 똑같이 1과목 10문항 + 2과목 40문항, 90분, 문항당 2점이다. 합격은 총점 60점 이상이고, 과목별 40% 미만이면 과락이다. 회차끼리는 문항이 겹치지 않으며, 세부항목과 난이도를 고르게 나눴다.</p>
+    <p class="lead">공식 시험과 똑같이 1과목 10문항 + 2과목 40문항, 90분, 문항당 2점이다. 합격은 총점 60점 이상이고, 과목별 40% 미만이면 과락이다. 1~5회는 회차끼리 문항이 겹치지 않으며 세부항목과 난이도를 고르게 나눴다. 맞춤 모의고사는 무작위가 아니라 내 기록을 보고 고른다.</p>
     <div class="sets">${SETS.map(s => { const b = best(s.n); const k = s.ids.filter(id => byId[id] && isKill(byId[id])).length; return `<button class="setc" data-set="${s.n}"><b>${setName(s.n)}</b><span>50문항 · 난이도 ${lvTxt(s.lv)} · 고오답 ${k}문항</span>${b != null ? `<em>최고 ${b}점</em>` : `<span>아직 안 풂</span>`}</button>`; }).join("")}
-      <button class="setc rand" data-set="0"><b>${setName(0)}</b><span>문제은행 ${QB.length}문항에서 매번 새로 뽑기</span>${best(0) != null ? `<em>최고 ${best(0)}점</em>` : ""}</button></div>
+      <button class="setc rand" data-set="0"><b>${setName(0)}</b><span>내 기록 기반 — 복습할 오답·약점 세부항목·안 푼 문제 위주로 50문항</span>${best(0) != null ? `<em>최고 ${best(0)}점</em>` : ""}</button></div>
     ${S.hist.length ? `<h3>지난 기록</h3><div class="scroll"><table><thead><tr><th>날짜</th><th>회차</th><th>점수</th><th>1과목</th><th>2과목</th><th>결과</th></tr></thead><tbody>${S.hist.slice(-10).reverse().map(r => `<tr><td>${esc(r.d)}</td><td>${setName(r.set || 0)}</td><td class="num">${r.sc}</td><td class="num">${r.a}/10</td><td class="num">${r.b}/40</td><td>${r.p ? "합격" : "불합격"}</td></tr>`).join("")}</tbody></table></div>` : ""}
   </section>`;
   view.querySelectorAll("[data-set]").forEach(b => b.onclick = () => {
     const n = +b.dataset.set;
     const ids = n ? SETS.find(s => s.n === n).ids.filter(id => byId[id])
-      : [...shuffle(QB.filter(q => q.s === 1)).slice(0, 10), ...shuffle(QB.filter(q => q.s === 2)).slice(0, 40)].map(q => q.id);
+      : [...recommend(QB.filter(q => q.s === 1)).ids.slice(0, 10), ...recommend(QB.filter(q => q.s === 2)).ids.slice(0, 40)];
     S.mock = { set: n, ids, ans: {}, i: 0, t0: Date.now(), done: false }; save(); mockPaper(); window.scrollTo(0, 0);
   });
 }
