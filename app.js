@@ -121,9 +121,9 @@ function stats() {
 }
 
 // ── 문제 카드
-function qBody(q, numLabel) {
+function qBody(q, numLabel, noSub) {
   const seen = new Set();
-  let html = `<div class="qmeta">${numLabel ? `<span class="qid">${numLabel}</span>` : ""}<span class="qid">${q.id}</span><span class="tag">${esc(subOf(q))}</span>${isKill(q) ? `<span class="tag kill">고오답 유형</span>` : ""}${lvTag(q.lv)}</div>
+  let html = `<div class="qmeta">${numLabel ? `<span class="qid">${numLabel}</span>` : ""}<span class="qid">${q.id}</span>${noSub ? "" : `<span class="tag">${esc(subOf(q))}</span>`}${isKill(q) ? `<span class="tag kill">고오답 유형</span>` : ""}${lvTag(q.lv)}</div>
     <div class="qth">${esc(q.th)}</div>
     <p class="qtext">${md(q.q, seen)}</p>`;
   if (q.tb) html += `<div class="tables">${q.tb.map(t => tbl(t, t.n)).join("")}</div>`;
@@ -200,8 +200,8 @@ function recommend(pool) {
   out.push(...A);
   return { ids: out.map(x => x.q.id), why, counts: { wrong: R.filter(x => x.r.k === "wrong").length, review: R.filter(x => x.r.k === "review").length, added: R.filter(x => x.r.k === "added").length, fresh: R.filter(x => ["weak", "kill", "new"].includes(x.r.k)).length } };
 }
+const REASON_LABEL = { wrong: "다시 도전", again: "방금 틀린 문제", review: "복습", added: "NEW", weak: "약점 보강", kill: "고오답", new: "처음", ahead: "미리 복습" };
 const REASON_STYLE = { wrong: "kill", ahead: "lv", review: "rv", added: "new", weak: "kill", kill: "kill", new: "lv", again: "kill" };
-const REASON_ICON = { wrong: "↺", ahead: "◷", review: "◷", added: "＋", weak: "◎", kill: "!", new: "·", again: "↺" };
 let quiz = { subj: 0, sub: "", order: "rec", kill: false, list: [], i: 0, pick: null, wrongMode: false, why: {}, counts: null };
 function poolFor() {
   if (quiz.wrongMode) return S.wrong.map(id => byId[id]).filter(Boolean);
@@ -258,19 +258,19 @@ function renderQuiz() {
       <label class="field"><span>세부항목 (공식 출제기준)</span><select id="f-sub">${subSelect(pool)}</select></label>
       ${wm ? "" : `<label class="field"><span>풀이 순서</span><select id="f-order">${[["rec", "추천 — 내 기록 기반 (복습 + 새 문제)"], ["seq", "출제기준 순서"], ["new", "안 푼 문제만"], ["missed", "한 번이라도 틀린 문제"], ["rand", "무작위"]].map(([k, t]) => `<option value="${k}" ${quiz.order === k ? "selected" : ""}>${t}</option>`).join("")}</select></label>`}
     </div>
-    ${!wm && quiz.counts ? `<div class="plan"><span><b>${quiz.counts.wrong}</b>오답 복습</span><span><b>${quiz.counts.review}</b>간격 복습</span><span><b>${quiz.counts.added}</b>새로 추가</span><span><b>${quiz.counts.fresh}</b>처음 푸는 문제</span></div>
-    <p class="small muted">추천 순서는 무작위가 아니다. 복습할 때가 된 오답을 먼저 내고, 새 문제는 정답률이 낮은 세부항목·고오답 유형·자주 나오는 주제 순으로, 새 문제 2개마다 복습 1개를 섞는다. 틀린 문제는 몇 문제 뒤에 한 번 더 나오고 다음 날 다시 나온다.</p>` : ""}
+    ${!wm && quiz.counts ? `<details class="plan"><summary><span class="pill kill">다시 도전 ${quiz.counts.wrong}</span><span class="pill rv">복습 ${quiz.counts.review}</span><span class="pill new">NEW ${quiz.counts.added}</span><span class="pill lv">처음 ${quiz.counts.fresh}</span><span class="small muted">추천 순서란?</span></summary>
+      <p class="small muted">무작위가 아니라 내 기록을 보고 고른다. 복습할 때가 된 오답(다시 도전)을 먼저 내고, 새 문제는 정답률이 낮은 세부항목·고오답 유형·자주 나오는 주제 순으로 낸다. 새 문제 2개마다 복습을 1개씩 섞는다. 틀린 문제는 4문제 뒤에 한 번 더, 다음 날 또 나오고, 맞힌 문제는 3·7·14·30일 뒤에 다시 나온다.</p></details>` : ""}
     ${wm ? "" : `<div class="row"><button class="toggle" id="f-kill" aria-pressed="${quiz.kill}"><span class="box">${quiz.kill ? "✓" : ""}</span>고오답 유형만 풀기 (${QB.filter(isKill).length}문항)</button></div>`}
   </section>`;
   if (!q) {
     html += `<section class="panel"><p class="empty">${wm ? "오답노트가 비어 있다. 문제풀이에서 틀린 문제가 여기에 모인다." : "조건에 맞는 문제가 없다. 필터를 바꿔 보자."}</p></section>`;
     view.innerHTML = html; bindQuizFilters(); return;
   }
-  const { html: body, seen } = qBody(q);
+  const { html: body, seen } = qBody(q, "", true);
   html += `<section class="panel frame" id="qcard">
-    <div class="spread"><span class="eyebrow">${quiz.i + 1} / ${quiz.list.length}</span>${S.log[id] ? `<span class="small muted">내 기록 ${S.log[id].ok}/${S.log[id].n} 정답</span>` : ""}</div>
+    <div class="qtop"><span class="pill sub">${esc(subOf(q))}</span>
+      <span class="qtop-r">${quiz.why[id] ? `<span class="pill ${REASON_STYLE[quiz.why[id].k] || "lv"}" title="${esc(quiz.why[id].t)}">${REASON_LABEL[quiz.why[id].k] || ""}</span>` : ""}<span class="cnt">${quiz.i + 1} / ${quiz.list.length}${S.log[id] ? ` · 기록 ${S.log[id].ok}/${S.log[id].n}` : ""}</span></span></div>
     <div class="meter"><i style="width:${(quiz.i + 1) / quiz.list.length * 100}%"></i></div>
-    ${quiz.why[id] ? `<div class="why-tag ${REASON_STYLE[quiz.why[id].k] || "lv"}"><i>${REASON_ICON[quiz.why[id].k] || "·"}</i><span>${esc(quiz.why[id].t)}</span></div>` : ""}
     ${body}
     <div class="opts">${q.o.map((t, i) => {
       const cls = quiz.pick == null ? "" : i === q.a ? "right" : i === quiz.pick ? "wrong" : "";
