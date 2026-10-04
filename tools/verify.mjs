@@ -8,11 +8,12 @@ import vm from "node:vm";
 const root = new URL("..", import.meta.url).pathname;
 const ctx = { window: {} };
 vm.createContext(ctx);
-for (const f of ["data/q1.js", "data/q2.js", "data/q3.js", "data/q4.js"]) {
-  try { vm.runInContext(readFileSync(root + f, "utf8"), ctx, { filename: f }); }
-  catch (e) { if (e.code !== "ENOENT") throw e; }
-}
-const QB = ctx.window.QB;
+import { readdirSync } from "node:fs";
+// VERIFY_ONLY=q6.js 처럼 주면 그 문항 파일만 검증한다 (여러 명이 동시에 작업할 때)
+const only = process.env.VERIFY_ONLY;
+const files = ["data/concepts.js", "data/syllabus.js", ...readdirSync(root + "data").filter(f => /^q\d+\.js$/.test(f)).filter(f => !only || f === only).sort((a, b) => parseInt(a.slice(1)) - parseInt(b.slice(1))).map(f => "data/" + f)];
+for (const f of files) vm.runInContext(readFileSync(root + f, "utf8"), ctx, { filename: f });
+const QB = ctx.window.QB || [];
 const db = process.env.PGDATABASE || "sqld";
 
 function psql(sql) {
@@ -54,6 +55,12 @@ for (const q of QB) {
   if (!Array.isArray(q.o) || q.o.length !== 4) errs.push("보기 수");
   if (!(q.a >= 0 && q.a <= 3)) errs.push("정답 범위");
   if (!Array.isArray(q.ox) || q.ox.length !== 4) errs.push("보기 해설 수");
+  const sub = q.sub || ctx.window.QSUB[q.id];
+  const subs = ctx.window.SYLLABUS.filter(x => x.s === q.s).flatMap(x => x.items.flatMap(i => i.subs));
+  if (!subs.includes(sub)) errs.push(`세부항목 없음/오류(${sub})`);
+  if (!ctx.window.TOPICS[q.tp] || ctx.window.TOPICS[q.tp].s !== q.s) errs.push(`tp 오류(${q.tp})`);
+  for (const k of ["id", "th", "q", "why", "trap", "memo"]) if (!q[k]) errs.push(k + " 없음");
+  if (q.pg && !q.res) errs.push("pg 있는데 res 없음");
   if (errs.length) { bad++; console.log(`✗ ${q.id} 구조: ${errs.join(", ")}`); }
 }
 const ids = QB.map(q => q.id), dup = ids.filter((x, i) => ids.indexOf(x) !== i);

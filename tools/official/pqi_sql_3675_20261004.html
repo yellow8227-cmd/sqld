@@ -1,0 +1,2333 @@
+
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<title>민간자격기본정보(SQL)-민간자격검색-자격정보-민간자격정보서비스
+</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+
+
+
+
+
+
+
+
+
+
+
+<meta name="viewport" content="width=1200" />
+<link rel="icon" type="image/png" sizes="144x144" href="/new_images/favicon/favicon.png?v=c7b48209-338">
+<link rel="apple-touch-icon" sizes="144x144" href="/new_images/favicon/favicon.png?v=c7b48209-338">
+<script src="https://use.fontawesome.com/releases/v6.6.0/js/all.js"></script>
+
+
+<link rel="stylesheet" type="text/css" href="/new_css/style.css?v=c7b48209-338" />
+<link rel="stylesheet" type="text/css" href="/new_css/board.css?v=c7b48209-338" />
+<link rel="stylesheet" type="text/css" href="/new_css/common.css?v=c7b48209-338" />
+<link rel="stylesheet" href="/new_css/jquery-ui-1.11.4.min.css?v=c7b48209-338" type="text/css" />
+<style>
+.gov_qul_info th {
+	font-size: 17px;
+	color: #006cba;
+	text-align: center;
+	padding-left: 0 !important;
+}
+
+.gov_qul_info td {
+	font-size: 17px;
+	text-align: center;
+}
+</style>
+<!--[if lte IE 6]><link rel="stylesheet" href="/css/ie6.css?v=c7b48209-338" type="text/css" media="all"><![endif]-->
+<!--[if lte IE 7]><link rel="stylesheet" href="/css/ie7.css?v=c7b48209-338" type="text/css" media="all"><![endif]-->
+<!--[if lte IE 8]><link rel="stylesheet" href="/css/ie8.css?v=c7b48209-338" type="text/css" media="all"><![endif]-->
+
+<script src="/js/jquery-1.11.3.min.js?v=c7b48209-338" type="text/javascript"></script>
+<script src="/js/jquery-ui-1.11.4.min.js?v=c7b48209-338" type="text/javascript"></script>
+<script src="/js/common.js?v=c7b48209-338" type="text/javascript"></script>
+
+<script src="/oz/FlashViewer/AC_OETags.js" type="text/javascript"></script>
+<script src="/oz/FlashViewer/ozutil.js" type="text/javascript"></script>
+<script src="/oz/FlashViewer/ozjscript.js" type="text/javascript"></script>
+<script defer src="/js/global_script.js?v=c7b48209-338"></script>
+
+<script language="javascript" type="text/javascript">
+			var $jq = jQuery.noConflict();
+			$jq(function() {
+				function addUser() {
+			      	var valid = true;
+			      	allFields.removeClass( "ui-state-error" );
+			      	return valid;
+			    }
+				/* jquery-ui dialog */ 
+				// 기관정보 - 보유자격 목록 Div
+				$jq('#qulCpListPopupDv').dialog({
+					autoOpen: false,
+					height: 400,
+				    width: 550,
+					modal: true,
+					buttons: {
+						        "닫기": addUser,
+								  닫기: function() {
+						         $jq( this ).dialog( "close" );
+						        }
+						      }
+				});
+				
+				// 자격취득현황 차트 Div */
+				$jq('#qulGrdStatChartPopupDv').dialog({
+					autoOpen: false,
+					width: 700,
+					height: 580,
+					modal: true,
+					buttons: {
+						        "닫기": addUser,
+								  닫기: function() {
+						         $jq( this ).dialog( "close" );
+						        }
+						      }
+				});
+			}).bind('copy', function() {	/* 페이지 복사 방지 - 우측 메뉴 사용, 선택, 드래그 금지 */
+				alert('본 화면은 복사 기능을 사용하실 수 없습니다.');				
+				return false;
+			});
+			
+		
+			/* 페이지 네비게이션으로 검색을 한다. */
+			function f_retrieveLinkPageList(pageNo) {
+				if(!fireWallChk("search")) {
+					return;
+				}
+	
+				document.detailForm.pageIndex.value = pageNo;
+				document.detailForm.action = "/inf/qul/infQulBasDetail.do";
+				document.detailForm.submit();
+			}
+
+			/* 민간자격 검색 목록으로 이동 */
+			function move(url, searchMemBunNum1, searchMemNm) {
+				var form = document.detailForm;
+		
+				// 보유종목 보기이면
+				if(searchMemBunNum1!='') {
+					form.searchQulCpCd.value = '0000';
+					form.searchQulNm.value = '';
+					form.searchMemNm.value = searchMemNm;
+					form.searchQulRegYy.value = '0000';
+					form.searchQulRegNum.value = '';
+					form.searchQulGrdStatYN.value = '';
+
+					form.searchMemBunNum1.value = searchMemBunNum1;
+				}
+
+				form.target = "_self";
+				form.action = url;
+				form.submit();
+			}
+		
+			// 홈페이지 새창띄우기
+			function homePage(orgSite) {
+				window.open("http://" + orgSite, "_blank");
+			}
+
+			/* 기관정보 보이기/숨기기 */
+			function orgDetail(open) {
+				if(open=='OPEN') {
+					$('#divOrgDetail').show();
+				} else {
+					$('#divOrgDetail').hide();
+					$('#btnOrgDetailOpen').show();
+				}
+			}
+
+			/* 보유자격목록 - 보기 클릭 시 */
+			function infQulBasDetail(qulId) {
+				document.detailForm.qulId.value = qulId;
+				f_retrieveLinkPageList(1);
+			}
+			
+			/* 기관별 공인/비공인 자격 목록 조회 후 팝업 */
+			function qulGrdCpListPopup(searchQulRegNum, searchQulCpCd, qulListSearchIndex) {
+				var dialogTitle = '보유자격 목록 (' + (searchQulCpCd=='0002' ? '등록자격' : '공인자격') + ')';
+				var jsonParam = {'searchQulRegNum': searchQulRegNum, 'searchQulCpCd': searchQulCpCd, 'qulListSearchIndex': qulListSearchIndex * 10};
+				$.ajax({
+					type : 'post',
+					url : '/inf/qul/selectQulCpListAjax.do',
+					dataType : 'json',
+					data : jsonParam,
+					async : false,
+					success : function(data, status) {
+						var totalRecordCount = Number(data[0].totalRecordCount);
+						var pageIndexs = Math.floor(totalRecordCount / 10);
+						
+						var rowHtml = '';
+						for(var ii=0; ii<data.length; ii++) {
+							rowHtml += '<tr>';
+							rowHtml += '<td>' + (ii + 1) + '</td>';
+// 							rowHtml += '<td>' + (totalRecordCount - (qulListSearchIndex*10) - ii) + '</td>';
+							rowHtml += '<td class="alignL">' + data[ii].qulNm + '</td>';
+							rowHtml += '<td class="alignL">' + data[ii].qulOthOrgNm + '</td>';
+							rowHtml += '<td><button type="button" onclick="infQulBasDetail(' + data[ii].qulId + ');" class="btn_s" title="바로가기 버튼">바로가기</button></td>';
+							rowHtml += '</tr>';
+						}
+						
+						$('#qulCpListTb>tbody').html(rowHtml);
+						
+						// 페이징 만들기
+						if(totalRecordCount > 10) {
+							var pageHtml = '';
+							pageHtml += '<ul>';
+							// 처음 페이지 아이콘
+							if(qulListSearchIndex > 0)
+								pageHtml += '<li><a onclick=\"qulGrdCpListPopup(\'' + searchQulRegNum + '\', \'' + searchQulCpCd + '\', 0); return false;\" href="#">first</a></li>';
+							else
+								pageHtml += '<li>first</li>';
+
+							// 이전 페이지 아이콘
+							if(qulListSearchIndex==0)
+								pageHtml += '<li>prev</li>';
+							else
+								pageHtml += '<li><a onclick=\"qulGrdCpListPopup(\'' + searchQulRegNum + '\', \'' + searchQulCpCd + '\', ' + (qulListSearchIndex-1) + '); return false;\" href="#">prev</a></li>';
+									
+							// 페이지		
+							for(var ii=0; ii<=pageIndexs; ii++) {
+								if(ii==qulListSearchIndex)
+									pageHtml += '<li class="active">' + (ii + 1) + '</li>';
+								else
+									pageHtml += '<li><a onclick=\"qulGrdCpListPopup(\'' + searchQulRegNum + '\', \'' + searchQulCpCd + '\', ' + ii + '); return false;\" href="#">' + (ii + 1) + '</a></li>';
+							}
+							
+							// 다음 페이지 아이콘
+							if(qulListSearchIndex<pageIndexs)
+								pageHtml += '<li><a onclick=\"qulGrdCpListPopup(\'' + searchQulRegNum + '\', \'' + searchQulCpCd + '\', ' + (qulListSearchIndex+1) + '); return false;\" href="#">next</a></li>';
+							else
+								pageHtml += '<li>next</li>';
+								
+
+							// 마지막 페이지 아이콘
+							if(rowHtml==pageIndexs)
+								pageHtml += '<li>end</li>';
+							else
+								pageHtml += '<li><a onclick=\"qulGrdCpListPopup(\'' + searchQulRegNum + '\', \'' + searchQulCpCd + '\', ' + pageIndexs + '); return false;\" href="#">end</a></li>';
+						} else {
+							pageHtml = '<ul>';
+							pageHtml += '<li>1</li>';
+						}
+						pageHtml += '</ul>';
+
+						$jq('#divQulPage').html(pageHtml);
+						
+						$jq('#qulCpListPopupDv').dialog({'title': dialogTitle}).dialog('open').focus();
+					},
+					error : function(request, status, error) {
+						alert('ajax error!!!'
+							  + '\n\ncode: ' + request.status
+							  + '\nerror:' + error
+						);
+					}
+				});
+			}
+
+			/* 자격취득현황 차트 팝업 */
+			function qulGrdStatChartPopup(qulId) {
+				$jq('#chartAreaDV').load('/inf/qul/infQulGrdStatChart.do', function() {
+					$jq('#qulGrdStatChartPopupDv').dialog('open').focus();
+				});
+			}
+
+			/* oz viewer 가 설치되면 호출되는 함수 */
+			function SetOZParamters_OZViewer() {
+				var oz;
+				if(navigator.appName.indexOf("Microsoft") != -1) {
+					oz = window["OZViewer"];
+				} else {
+					oz = document["OZViewer"];
+				}
+				
+				/* psw - 로컬테스트용
+				oz.sendToActionScript("connection.servlet", "http://172.16.251.32:8080/oz/server");
+				*/
+				oz.sendToActionScript("connection.servlet", "http:///oz/server");
+				oz.sendToActionScript("connection.reportname", "/민간자격취득자현황.ozr");
+				oz.sendToActionScript("odi.sql_qulget.pcount", "2");
+				oz.sendToActionScript("odi.sql_qulget.args1", "qulId=3675");
+				oz.sendToActionScript("odi.sql_qulget.args2", "qulCpCd=0000");
+				oz.sendToActionScript("toolbar.all", "false");
+				oz.sendToActionScript("viewer.configmode", "html");
+				oz.sendToActionScript("viewer.isframe", "false");
+				oz.sendToActionScript("viewer.useinborder", "false");
+				oz.sendToActionScript("viewer.useoutborder", "false");
+				oz.sendToActionScript("viewer.usestatusbar", "false");
+				oz.sendToActionScript("odi.odinames", "sql_qulget");
+
+				return true;
+			}
+
+			
+			/* 자격취득현황 차트 refresh */
+			function ozRefresh(qulCpCd) {
+				var oz;
+				if(navigator.appName.indexOf("Microsoft") != -1) {
+					oz = window["OZViewer"];
+				} else {
+					oz = document["OZViewer"];
+				}
+
+				oz.CreateReport("connection.servlet=http:///oz/server\n" +
+								"connection.reportname=/민간자격취득자현황.ozr\n" +
+								"viewer.configmode=html\n" +
+								"viewer.isframe=false\n" +
+								"viewer.useinborder=false\n" +
+								"viewer.useoutborder=false\n" +
+								"viewer.usestatusbar=false\n" +
+								"odi.odinames=sql_qulget\n" + 
+								"odi.sql_qulget.pcount=2\n" + 
+								"odi.sql_qulget.args1=qulId=3675\n" + 
+								"odi.sql_qulget.args2=qulCpCd=" + qulCpCd);
+			}
+
+			/* 자격취득현황 목록 - 첨부파일 다운로드 시 */
+			function downFile(orgPath, orgFile) {
+				var form = document.fileForm;
+				$("#filePath").val(orgPath);
+				$("#fileNm").val(orgFile);
+				form.submit();
+			}
+		</script>
+</head>
+
+<body>
+	<script>
+    // 현재 페이지에서 작동 불가로 임시로 넣은 코드 (웹접근성)20250901
+    if (!document.getElementById('skipToContent')) {
+      document.write(
+        '<nav id="skipToContent" aria-label="바로가기">'
+        + '<a href="#contents">본문 바로가기</a>'
+        + '<a href="#btnMenu">메뉴 바로가기</a>'
+        + '</nav>'
+      );
+    }
+  	</script>
+	<div class="all_wrap">
+		<div class="content_align">
+			<!--top-->
+			
+
+
+
+
+
+
+
+
+
+<!--
+<script type="text/javascript" src="/MagicLine4Web/ML4WebExample/js/jquery-1.10.2.js"></script>
+-->
+
+
+<script type="text/javascript">
+	//<![CDATA[
+/* 	$(document).ready(function wait(){
+		alert("서비스 준비중입니다.");
+		return;
+	}) */
+	var ipAddress = "160.79.106.140";
+    //alert("Your IP Address: " + ipAddress);
+	
+	/* 클라우드 전환 준비 중 리다이렉션 */
+    // $(document).ready(function() {
+	// 	if (ipAddress !== '삭제됨' && ipAddress !== '삭제됨' && ipAddress !== '삭제됨' && ipAddress !== '삭제됨' && ipAddress !== '삭제됨' && ipAddress !== '삭제됨' && ipAddress !== '삭제됨' && ipAddress !== '삭제됨' && ipAddress !== '삭제됨' && ipAddress !== '삭제됨' && ipAddress !== '삭제됨' && ipAddress !== '삭제됨' && ipAddress !== '삭제됨' && ipAddress !== '삭제됨' && ipAddress !== '삭제됨' && ipAddress !== '삭제됨')
+	// 	{
+	// 		window.location.replace('/preparing.html');
+	// 	}
+    // });
+	
+	function topMove(url) {
+		var prevent = ['reqReNewQulMngList','reqChgMain','reqEtcList','reqChgList3'];
+		var today = Number(getToday());
+
+		if(today >= 20141101 && today <= 20141130) {
+			for(var i = 0 ; i < prevent.length ; i++) {
+				if(url.indexOf(prevent[i]) > -1) {
+					alert('기관이전 및 시스템 개선 작업으로 인해 11월 한달동안 시스템 이용에 제한이 있습니다.');
+					url = '/brd/brdView.do';
+				}
+			} 
+		}
+			
+		document.topForm.action=url;
+		document.topForm.submit();
+	}
+
+	function getToday() {
+	   	var today = new Date();
+	   	var year  = today.getFullYear();
+	   	var month = Number(today.getMonth()) + 1;	   
+	   	var date  = Number(today.getDate());	   
+	   	if(month < 10) { month = '0' + month; } else { month = month + ''; }
+	   	if(date < 10) { date = '0' + date; } else { date = date + ''; }
+	   
+	   	return year + month + date;
+    }
+    
+	function menuMsgTop(){
+		alert("8월 7일까지 자격관련 이관 작업을 위해  서비스를 잠시 중단합니다.  \n\n많은 양해 부탁드립니다.");
+		return;
+	}
+	
+	function menuMsg(){
+		alert("기존 홈페이지의 등록정보 이관작업을 위해 서비스를 잠시 중단합니다.  \n\n많은 양해 부탁드립니다.");
+		return;
+	}	
+
+
+
+	
+	//]]>
+	
+	//글로벌 네비게이션(2Depth 메뉴그룹)에 대한 마우스 또는 키보드 반응(보임/숨김)설정
+	function activeGNB(id) {
+		$(".depth1").css("display","none");
+		$("#"+id).css("display","block");
+	}
+	//로컬 네비게이션(4Depth 메뉴그룹)에 대한 마우스 또는 키보드 반응(보임/숨김)설정
+	function activeLNB() {
+		$(".depth1").css("display","none");
+	}
+
+	function MM_openBrWindow(theURL, winName, features) { //v2.0
+		window.open(theURL, winName, features);
+	}
+
+	//JavaScript Document
+	$(document).ready(function() {
+		var focusClassNm = "";
+		//gnb hover
+		$("#gnb li").mouseenter(function() {
+			$(this).children("ul.depth1").css("display","block");
+		}).mouseleave(function() {
+			$(this).children("ul.depth1").css("display","none");
+		}); 
+		
+		//a태그안에 title추가	
+		$(".gnb li a").each(function() {
+			var add_title = jQuery(this).text();
+			$(this).attr("title", add_title);
+		});
+
+		//a태그안에 title추가	
+		$(".admin_left li a").each(function() {
+			var add_title = jQuery(this).text();
+			$(this).attr("title", add_title);
+		});
+	});
+	(function () {
+	  // DOMContentLoaded 보장
+	  if (document.readyState === 'loading') {
+	    document.addEventListener('DOMContentLoaded', initSkip, { once: true });
+	  } else {
+	    initSkip();
+	  }
+
+	  function initSkip() {
+	    try {
+	      // 1) 스킵 링크를 body 맨 앞에 "한 번만" 삽입 (top_menu.jsp는 body 안에 include되므로 before 대신 afterbegin)
+	      if (!document.getElementById('skipToContent')) {
+	        document.body.insertAdjacentHTML('afterbegin',
+	          '<nav id="skipToContent" class="skip" aria-label="바로가기">'
+	            + '<a href="#contents">본문 바로가기</a>'
+	            + '<a href="#btnMenu">메뉴 바로가기</a>'
+	          + '</nav>'
+	        );
+	      }
+
+	      // 2) 본문 타깃(#contents) 보정
+	      var main = document.getElementById('contents')
+	             || document.querySelector('.content');
+	      if (main) {
+	        // 이미 다른 곳에 id="contents"가 있으면 중복 방지
+	        if (!main.id) { main.id = 'contents'; }
+	        // 스킵 이동 후 포커스 보장
+	        main.setAttribute('tabindex', '-1');
+	      } else {
+	        // 타깃이 전혀 없으면 "본문 바로가기" 링크 제거(깨진 앵커 예방)
+	        var skipContentLink = document.querySelector('#skipToContent a[href="#contents"]');
+	        if (skipContentLink) skipContentLink.remove();
+	      }
+
+	      // 3) (선택) 중복 삽입 가드: 다른 스크립트가 또 넣으려 하면 막기 위해 data-flag 부여
+	      document.body.dataset.skipInit = '1';
+	    } catch (e) {
+	      // 공통 파일이라 페이지별 에러 전파 막기
+	      console && console.warn && console.warn('[skip] init failed:', e);
+	    }
+	  }
+	})();
+</script>
+	<div id="header-top">
+		<div class="toggle-wrap">
+			<div class="toggle-head">
+				<div class="inner">
+					<span class="nuri-txt">이 누리집은 대한민국 공식 전자정부 누리집입니다.</span>
+					<!--<button type="button" class="btn btn-txt ico-arr-down toggle-btn xsm">공식 누리집 확인방법<span
+							class="sr-only">열기</span></button>-->
+				</div>
+			</div>
+			<div class="toggle-body">
+				<div class="inner">
+					<!--<dl class="dl nuri">					
+						<dt class="dt">공식 누리집 주소 확인하기</dt>
+						<dd class="dd">go.kr 주소를 사용하는 누리집은 대한민국 정부기관이 관리하는 누리집입니다.<br class="br">이밖에 or.kr 또는 .kr등 다른 도메인 주소를 사용하고 있다면 아래 URL에서 도메인 주소를 확인해 보세요</dd>
+						<dd><a href="#" class="btn btn-txt ico-go xsm" target="_blank">운영중인 공식 누리집보기</a></dd>
+					</dl>-->
+				</div>
+			</div>
+		</div>
+	</div>
+	
+<header id="header">
+	<form method="post" name="topForm" action="">
+			<!-- 헤더 컨텐츠 영역  -->
+			<div class="header-in top_wrap">
+				<!-- 헤더 상단 기타메뉴 -->
+				<div class="head-body">
+					<div class="inner">
+						<div class="head-in">
+							<h1 class="logo">
+								<img src="/new_images/logo_res.png?v=c7b48209-338" alt="민간자격정보서비스" usemap="#Map" width="280" height="44" />
+								<map name="Map" id="Map">
+									<area shape="rect" coords="1,1,280,44" href="/" alt="민간자격정보서비스 홈페이지로 이동" />
+									<!-- <area shape="rect" coords="7,12,163,39" href="/" alt="민간자격정보서비스 홈페이지로 이동"/> 20201216 로고적용에 따른 링크 위치 변경 -->
+									<!-- <area shape="rect" coords="188,15,361,39" href="http://www.krivet.re.kr" alt="한국직업능력개발원 홈페이지로 이동"/> -->
+								</map>
+							</h1>
+							<div class="right member fr">
+								
+								<a href='/jin/lgn/jinLgnView.do' class="btn-navi login" title="로그인">로그인</a>
+								<a href='/jin/reg/jinRegChoice.do' class="btn-navi join" title="회원가입">회원가입</a>
+								
+							</div>
+							
+						</div>
+					</div>
+				</div>
+				<!-- //헤더 상단 기타메뉴 -->
+				
+				<!-- 웹 : 메뉴 영역 -->
+				<nav id="btnMenu" class="krds-gnb">
+					<div class="inner">
+						<ul class="gnb-menu" aria-label="메인 메뉴" role="tablist">
+							<li role="none">
+								<button type="button" class="gnb-main-trigger" data-trigger="gnb" role="menuitem" aria-controls="gnb-main-menu-orclk2x" aria-expanded="false" aria-haspopup="true">민간자격소개</button>
+								<!-- gnb-toggle-wrap -->
+								<div class="gnb-toggle-wrap" id="gnb-main-menu-orclk2x" role="menu">
+									<!-- gnb-main-list -->
+									<div class="gnb-main-list" data-has-submenu="true" style="min-height: 263px;">
+										<ul>
+											<li role="none">
+												<button type="button" class="gnb-sub-trigger active" data-trigger="gnb" role="menuitem" aria-controls="gnb-sub-menu-micgtpi" aria-expanded="false" aria-haspopup="true">민간자격소개</button>
+												<!-- gnb-sub-list -->
+												<div class="gnb-sub-list active" role="menu" id="gnb-sub-menu-micgtpi">
+													<div class="gnb-sub-content">
+														<h2 class="sub-title">민간자격소개</h2>
+														<ul>
+															<li role="none"><a href="/int/intPrCntView.do">자격연구센터</a></li>
+															<li role="none"><a href="/int/intSysView.do">민간자격제도</a></li>
+															<li role="none"><a href="/int/intRegSysView.do">민간자격 등록제도</a></li>
+															<li role="none"><a href="/int/intOffcView.do">민간자격 국가공인제도</a></li>
+															<li role="none"><a href="/int/intRelOrgView.do">관련기관</a></li>
+														</ul>
+													</div>
+												</div>
+												<!-- //gnb-sub-list -->
+											</li>
+										</ul>
+									</div>
+									<!-- //gnb-main-list -->
+								</div>
+								<!-- //gnb-toggle-wrap -->
+							</li>
+							
+							<li role="none">
+								<button type="button" class="gnb-main-trigger" data-trigger="gnb" role="menuitem" aria-controls="gnb-main-menu-v15bk64" aria-expanded="false" aria-haspopup="true">자격정보</button>
+								<!-- gnb-toggle-wrap -->
+								<div class="gnb-toggle-wrap" id="gnb-main-menu-v15bk64" role="menu">
+									<!-- gnb-main-list -->
+									<div class="gnb-main-list" data-has-submenu="true" style="min-height: 256px;">
+										<ul>
+											<li role="none">
+												<button type="button" class="gnb-sub-trigger" data-trigger="gnb" role="menuitem" aria-controls="gnb-sub-menu-0hp6dbm" aria-expanded="false" aria-haspopup="true">민간자격</button>
+												<!-- gnb-sub-list -->
+												<div class="gnb-sub-list" role="menu" id="gnb-sub-menu-0hp6dbm">
+													<div class="gnb-sub-content">
+														<h2 class="sub-title">민간자격</h2>             	  
+														<ul>
+															<li role="none"><a href="/inf/qul/infQulSitRegView.do">민간자격 현황</a></li>
+															<li role="none"><a href="/inf/qul/infQulList.do">민간자격 검색(등록/공인)</a></li>
+															<li role="none"><a href="/inf/qul/infQulEtcList.do">등록폐지자격 검색</a></li>
+														</ul>
+													</div>
+												</div>
+												<!-- //gnb-sub-list -->
+											</li>
+											<li role="none">
+												<button type="button" class="gnb-sub-trigger" data-trigger="gnb" role="menuitem" aria-controls="gnb-sub-menu-0hp6dbm" aria-expanded="false" aria-haspopup="true">국가자격</button>
+												<!-- gnb-sub-list -->
+												<div class="gnb-sub-list" role="menu" id="gnb-sub-menu-0hp6dbm">
+													<div class="gnb-sub-content">
+														<h2 class="sub-title">국가자격</h2>             	  
+														<ul>
+															<li role="none"><a href="/inf/qul/infQulSitNanView.do">국가자격 현황</a></li>
+															<li role="none"><a href="/inf/qul/infQulNanLis.do">개별법 국가자격 검색</a></li>
+														</ul>
+													</div>
+												</div>
+												<!-- //gnb-sub-list -->
+											</li>
+										</ul>
+									</div>
+									<!-- //gnb-main-list -->
+								</div>
+								<!-- //gnb-toggle-wrap -->
+							</li>
+				
+							<li role="none">
+								<button type="button" class="gnb-main-trigger" data-trigger="gnb" role="menuitem" aria-controls="gnb-main-menu-orclk2x" aria-expanded="false" aria-haspopup="true">민간자격등록신청</button>
+								<!-- gnb-toggle-wrap -->
+								<div class="gnb-toggle-wrap" id="gnb-main-menu-orclk2x" role="menu">
+									<!-- gnb-main-list -->
+									<div class="gnb-main-list" data-has-submenu="true" style="min-height: 263px;">
+										<ul>
+											<li role="none">
+												<button type="button" class="gnb-sub-trigger active" data-trigger="gnb" role="menuitem" aria-controls="gnb-sub-menu-micgtpi" aria-expanded="false" aria-haspopup="true">민간자격등록신청</button>
+												<!-- gnb-sub-list -->
+												<div class="gnb-sub-list active" role="menu" id="gnb-sub-menu-micgtpi">
+													<div class="gnb-sub-content">
+														<h2 class="sub-title">민간자격등록신청</h2>                   
+														<ul>
+															<li role="none"><a href="javascript:topMove('/req/renew/reqReNewQulMngList.do');">신규등록신청</a></li>
+															<li role="none"><a href="javascript:topMove('/req/chg/reqChgMain.do');">변경등록신청</a></li>
+															<li role="none"><a href="javascript:topMove('/req/etc/reqEtcList.do?reqCd=0002');">등록 폐지 신고</a></li>
+															<li role="none"><a href="javascript:topMove('/req/etc/reqEtcList.do?reqCd=0001');">등록증 발급 오류 신고</a></li>
+														</ul>
+													</div>
+												</div>
+												<!-- //gnb-sub-list -->
+											</li>
+										</ul>
+									</div>
+									<!-- //gnb-main-list -->
+								</div>
+								<!-- //gnb-toggle-wrap -->
+							</li>
+							
+							<li role="none">
+								<button type="button" class="gnb-main-trigger" data-trigger="gnb" role="menuitem" aria-controls="gnb-main-menu-orclk2x" aria-expanded="false" aria-haspopup="true">알림마당</button>
+								<!-- gnb-toggle-wrap -->
+								<div class="gnb-toggle-wrap" id="gnb-main-menu-orclk2x" role="menu">
+									<!-- gnb-main-list -->
+									<div class="gnb-main-list" data-has-submenu="true" style="min-height: 263px;">
+										<ul>
+											<li role="none">
+												<button type="button" class="gnb-sub-trigger active" data-trigger="gnb" role="menuitem" aria-controls="gnb-sub-menu-micgtpi" aria-expanded="false" aria-haspopup="true">알림마당</button>
+												<!-- gnb-sub-list -->
+												<div class="gnb-sub-list active" role="menu" id="gnb-sub-menu-micgtpi">
+													<div class="gnb-sub-content">
+														<h2 class="sub-title">알림마당</h2>                   
+														<ul>
+															<li role="none"><a href="/brd/brdList.do?pBbsKindId=1">공지사항</a></li>
+															<li role="none"><a href="/brd/brdList.do?pBbsKindId=2">자격관련소식</a></li>
+															<li role="none"><a href="/brd/brdList.do?pBbsKindId=3">자주묻는질문</a></li>
+															<li role="none"><a href="/brd/brdList.do?pBbsKindId=12">등록폐지등 공고</a></li>
+														</ul>
+													</div>
+												</div>
+												<!-- //gnb-sub-list -->
+											</li>
+										</ul>
+									</div>
+									<!-- //gnb-main-list -->
+								</div>
+								<!-- //gnb-toggle-wrap -->
+							</li>
+							
+							<li role="none">
+								<button type="button" class="gnb-main-trigger" data-trigger="gnb" role="menuitem" aria-controls="gnb-main-menu-orclk2x" aria-expanded="false" aria-haspopup="true">참여마당</button>
+								<!-- gnb-toggle-wrap -->
+								<div class="gnb-toggle-wrap" id="gnb-main-menu-orclk2x" role="menu">
+									<!-- gnb-main-list -->
+									<div class="gnb-main-list" data-has-submenu="true" style="min-height: 263px;">
+										<ul>
+											<li role="none">
+												<button type="button" class="gnb-sub-trigger active" data-trigger="gnb" role="menuitem" aria-controls="gnb-sub-menu-micgtpi" aria-expanded="false" aria-haspopup="true">참여마당</button>
+												<!-- gnb-sub-list -->
+												<div class="gnb-sub-list active" role="menu" id="gnb-sub-menu-micgtpi">
+													<div class="gnb-sub-content">
+														<h2 class="sub-title">참여마당</h2>                   
+														<ul>
+															<li role="none"><a href="/brd/brdList.do?pBbsKindId=11">민간자격관리자 문의</a></li>
+															<li role="none"><a href="/brd/brdList.do?pBbsKindId=14">소비자피해상담 및 질의</a></li>
+															<li role="none"><a href="/pol/prt/prtPolList.do">설문참여</a></li>
+														</ul>
+													</div>
+												</div>
+												<!-- //gnb-sub-list -->
+											</li>
+										</ul>
+									</div>
+									<!-- //gnb-main-list -->
+								</div>
+								<!-- //gnb-toggle-wrap -->
+							</li>
+							
+							<li role="none">
+								<button type="button" class="gnb-main-trigger" data-trigger="gnb" role="menuitem" aria-controls="gnb-main-menu-orclk2x" aria-expanded="false" aria-haspopup="true">정보마당</button>
+								<!-- gnb-toggle-wrap -->
+								<div class="gnb-toggle-wrap" id="gnb-main-menu-orclk2x" role="menu">
+									<!-- gnb-main-list -->
+									<div class="gnb-main-list" data-has-submenu="true" style="min-height: 263px;">
+										<ul>
+											<li role="none">
+												<button type="button" class="gnb-sub-trigger active" data-trigger="gnb" role="menuitem" aria-controls="gnb-sub-menu-micgtpi" aria-expanded="false" aria-haspopup="true">정보마당</button>
+												<!-- gnb-sub-list -->
+												<div class="gnb-sub-list active" role="menu" id="gnb-sub-menu-micgtpi">
+													<div class="gnb-sub-content">
+														<h2 class="sub-title">정보마당</h2>                   
+														<ul>
+															<li role="none"><a href="/brd/brdList.do?pBbsKindId=6">관련법</a></li>
+															<li role="none"><a href="/brd/brdList.do?pBbsKindId=7">양식 및 서식</a></li>
+															<li role="none"><a href="/brd/brdList.do?pBbsKindId=8">자료 및 발간물</a></li>
+															<li role="none"><a href="/brd/brdList.do?pBbsKindId=9" onfocusout="activeLNB();">금지분야 공고</a></li>
+														</ul>
+													</div>
+												</div>
+												<!-- //gnb-sub-list -->
+											</li>
+										</ul>
+									</div>
+									<!-- //gnb-main-list -->
+								</div>
+								<!-- //gnb-toggle-wrap -->
+							</li>
+							
+						</ul>
+					</div>
+				</nav>
+				<!-- //웹 : 메뉴 영역 -->
+			</div>
+			<!-- //헤더 컨텐츠 영역  -->					
+			
+			</form>
+		</header>
+<!-- 서비스 소개영상 -->
+<!--p style="padding:0 0 0 770px; position:absolute; z-index:500; margin:-7px 0 0 0;" ><a href="javascript:;" onclick="window.open('/krivet/popup.html','pqi_krivet','width=950,height=560,left=0,top=0')"><img src="/images/krivet/icon.png?v=c7b48209-338" style="cursor:pointer" alt="민간자격정보서비스 영상마당" title="새창으로열림"/></a></p -->
+<!-- 서비스 소개영상 -->
+
+			<!--top-->
+			<script language="javascript" src="/js/jquery.js?v=c7b48209-338" type="text/javascript"></script>
+
+			<!-- 상단이미지 -->
+			<div class="sub_top_title title_002">
+				<div style="width: 1200px; margin: 0 auto; top: 0; right: 0; bottom: 0; left: 0;">
+					<p class="title_textarea_p1">
+						<span class="span_red">P</span>rivate <span class="span_red">Q</span>ualification <span class="span_red">I</span>nformation
+					</p>
+					<p class="title_textarea_p2">한 눈에 보는 민간자격정보</p>
+					<p class="title_textarea_p3 title_textarea_p3_sub">
+						민간자격 정보서비스를 통해 등록된<br />민간자격을 소개하고 민간자격현황을 알려드립니다.
+					</p>
+				</div>
+			</div>
+			<!-- 상단이미지 -->
+
+			<!-- contents start -->
+			<div class="content_wrap" id="contents">
+				<!--좌측메뉴 Start-->
+				<!--좌측메뉴 Start--><nav id="left_wrap">	<h2 class="hidden">서브메뉴</h2>	<div class="left_title">자격정보</div>	<ul class="admin_left">		<li class="sub_menu_top"><a href="/inf/qul/infQulSitRegView.do">민간자격</a>			<ul>				<li><a href="/inf/qul/infQulSitRegView.do"><hr>민간자격 현황</a></li>				<li><a href="/inf/qul/infQulList.do"><hr>민간자격 검색</a></li>				<li><a href="/inf/qul/infQulEtcList.do"><hr>등록폐지자격 검색</a></li>			</ul></li>		<li class="sub_menu_top"><a href="/inf/qul/infQulSitNanView.do">국가자격</a>			<ul>				<li><a href="/inf/qul/infQulSitNanView.do"><hr>국가자격 현황</a></li>				<li><a href="/inf/qul/infQulNanLis.do"><hr>개별법 국가자격 검색</a></li>			</ul></li>	</ul></nav><!--자격조회 Start-->
+
+
+
+				<!--div class="lbanner">
+                    <p><a href="/inf/qul/infQulList.do?searchQulCpCd=0001"><img src="/images/common/banner01.gif?v=c7b48209-338" alt="공인 민간자격 목록을 확인할 수 있는 링크입니다" /></a></p>
+                    <p><a href="/inf/qul/infQulList.do?searchQulCpCd=0002"><img src="/images/common/banner02.gif?v=c7b48209-338" alt="등록 민간자격 목록을 확인할 수 있는 링크입니다" /></a></p>
+                </div -->
+            <!--자격조회 End-->
+				<!--좌측메뉴 End-->
+
+				<div class="content">
+					<section>
+						<h2 class="hidden">자격정보</h2>
+						<article>
+							<div class="content_info">
+								<h3>민간자격검색</h3>
+								<div class="location">
+									<span>home</span><span>자격정보</span><span>민간자격검색</span>
+								</div>
+							</div>
+							<!-- 기본정보 start -->
+							<article class="content_board">
+								<h4>기본정보</h4>
+								<div class="board_info">
+									<p style="color:#EC4651; font-weight: 600;">
+										※ <span style="color:inherit; font-weight:inherit; text-decoration: underline;"> 동일 명칭의 자격 및 기관이 다수 존재</span>할 수 있으니, 반드시 <span style="color:inherit; font-weight:inherit; text-decoration: underline;">자격의 등록번호 및 기관 정보를 확인</span>하시기 바랍니다.
+									</p>
+									<div class="clear"></div>
+								</div>
+								<div class="space10"></div>
+								<table class="board_write gov_qul_info">
+									<caption>민간자격검색 기본정보에 대한 표로 자격명, 자격발급기관, 등록번호, 공동발급기관, 주무부처, 검정시행일정 순으로 나타냄</caption>
+									<colgroup>
+										<col class="width150" />
+										<col class="width240" />
+										<col class="width150" />
+										<col class="widthauto" />
+									</colgroup>
+									<tbody>
+										<tr>
+											<th scope="row">자격명</th>
+											<td>SQL 
+													<br />(Structured Query Language)</td>
+											<th scope="row">자격발급기관</th>
+											<td>
+												<div style="display: inline-block;">
+													
+														<a href="javascript:homePage('www.kdata.or.kr');" title="홈페이지 새창열기">재단법인 한국데이터산업진흥원</a>
+													
+													
+													<!-- CMT_20201013_03_주소,대표전화번호 숨김처리 기능 추가 시작 -->
+													
+														
+														
+															
+																<p>
+																	(TEL :
+																	02-3708-5415
+																	)
+																</p>
+															
+														
+													
+													<!-- CMT_20201013_03_주소,대표전화번호 숨김처리 기능 추가 끝 -->
+												</div>
+												<div style="display: inline-block; vertical-align: top; margin-left: 10px;">
+													<button type="button" onclick="orgDetail('OPEN');" class="btn_s bg_white" title="기관정보보기 버튼" style="margin-top: 3px;">기관정보</button>
+												</div>
+											</td>
+										</tr>
+										<tr>
+											<th scope="row">등록번호</th>
+											<td>2011-0771</td>
+											<th scope="row">공동발급기관</th>
+											<td> 
+													
+												 </td>
+										</tr>
+										<tr>
+											<th scope="row">주무부처</th>
+											<td>과학기술정보통신부</td>
+											<th scope="row">검정시행일정</th>
+											<td> <!-- psw16-자격취득현황검정자료URL관리 (자격검정(일정)사이트) --> 
+				                                		&nbsp;&nbsp;&nbsp;<a href="javascript:homePage('www.dataq.or.kr/www/accept/schedule.do');" title="검정시행일정 홈페이지"><img src="/images/button/btn_home.gif?v=c7b48209-338" alt="닫기" /></a>
+												</td>
+										</tr>
+									</tbody>
+								</table>
+							</article>
+							<!-- 기본정보 end -->
+
+							<!-- 민간자격관리기관 정보 start -->
+							<div id="divOrgDetail" class="box_dot_Contxt">
+								<article class="content_board">
+									<h4>자격발급기관 정보</h4>
+									<div class="space10"></div>
+									<table class="board_write">
+										<caption>민간자격관리기관 정보에 대한 표로 기관명,홈페이지,보유자격,대표전화,기관유형,주소로 나타냄</caption>
+										<colgroup>
+											<col class="width120" />
+											<col class="widthauto" />
+											<col class="width120" />
+											<col class="width120" />
+											<col class="width120" />
+										</colgroup>
+										<tbody>
+											<tr>
+												<th scope="row">기관명</th>
+												<td>재단법인 한국데이터산업진흥원</td>
+												<th scope="row" rowspan="2">보유자격</th>
+												<th scope="row">공인자격</th>
+												<td>
+														3개
+
+														<button type="button" onclick="javascript:qulGrdCpListPopup('2011-0771', '0001', 0);" style="margin-left: 5px;" class="btn_s bg_green btn_show_list" aria-haspopup="dialog" title="공인자격 목록 보기 팝업">보기</button>
+													</td>
+											</tr>
+											<tr>
+												<th scope="row">홈페이지</th>
+												<td>
+														<a href="javascript:homePage('www.kdata.or.kr')" title="민간자격관리기관의 홈페이지를 새 창으로 열 수 있는 링크입니다.">www.kdata.or.kr</a>
+													</td>
+												<th scope="row">등록자격</th>
+												<td></td>
+											</tr>
+											<!-- CMT_20201013_03_주소,대표전화번호 숨김처리 기능 추가 시작 -->
+											<tr>
+												<th scope="row">대표번호</th>
+												<td>
+														
+														
+															02-3708-5415
+														
+													</td>
+												<th scope="row">기관유형</th>
+												<td colspan="2">비영리법인(민법법인)</td>
+											</tr>
+											<tr>
+												<th scope="row">주소</th>
+												<td colspan="4">
+														
+														
+															(04513) 서울특별시 중구 세종대로9길 42 (서소문동) 8층
+														
+													</td>
+											</tr>
+											<!-- CMT_20201013_03_주소,대표전화번호 숨김처리 기능 추가 끝 -->
+										</tbody>
+									</table>
+									<div class="space10"></div>
+									<div class="fr">
+										<button type="button" onclick="orgDetail('CLOSE');" class="btn_m btn_colse" title="닫기 버튼">닫기</button>
+									</div>
+									<div class="clear"></div>
+								</article>
+							</div>
+							<!-- 민간자격관리기관 정보 end -->
+							<div class="space30"></div>
+
+							<!-- 자격정보 start -->
+							<article class="content_result">
+								<h4>자격정보</h4>
+								<div class="space10"></div>
+								<div class="text_conts">
+									<dl>
+										<dt>
+											
+											데이터베이스 개발 및 사용의 필수 언어인 SQL(Structured Query Language)의 기본지식 및 활용능력을 검증하고 자격을 부여함<br/><br/>*SQL 전문가<br/>데이터베이스와 데이터모델링에 대한 지식을 바탕으로 데이터를 조작하고 추출하는데 있어서 정확하고 최적의 성능을 발휘하는 SQL을 작성할 수 있고, 이를 토대로 SQL을 내포하는 데이터베이스 프로그램이나 응용 소프트웨어의 성능을 최적화하거나, 이러한 성능 최적화를 지원할 수 있는 데이터베이스 개체(뷰, 인덱스 등)의 설계와 구현 등의 직무 수행 능력 검증<br/><br/>*SQL 개발자<br/>데이터베이스와 데이터모델링에 대한 지식을 바탕으로 데이터를 조작하고 추출하는데 있어서 정확하고 최적의 성능을 발휘하는 SQL 작성 등의 직무 수행 능력 검증
+										</dt>
+									</dl>
+
+								</div>
+								<div class="space10"></div>
+								
+								
+									<table class="board_list" style="border-color: #ddd; border-collapse: collapse; margin-bottom: 10px;">
+										<caption>자격정보 전문가 표로 직무내용에 대한 정보를 제공합니다.</caption>
+										<colgroup>
+											<col class="width150">
+											<col class="widthauto">
+										</colgroup>
+										<thead>
+											<tr>
+												<th style="padding: 10px 0;" colspan="2" scope="col">전문가 
+					                        				(공인)
+					                        			</th>
+											</tr>
+										</thead>
+										<tbody>
+											<tr>
+												<th style="padding: 10px 0;" scope="row">직무내용</th>
+												<td>
+													 데이터를 조작하고 추출하는데 있어서 정확하고 최적의 성능을 발휘하는 SQL을 작성할 수 있고, 이를 토대로 SQL을 내포하는 데이터베이스 프로그램이나 응용 소프트웨어의 성능을 최적화 하거나, 이러한 성능 최적화를 지원할 수 있는 데이터베이스 개체(뷰, 인덱스 등)의 설계와 구현 등의 직무를 수행
+												</td>
+											</tr>
+										</tbody>
+									</table>
+								
+									<table class="board_list" style="border-color: #ddd; border-collapse: collapse; margin-bottom: 10px;">
+										<caption>자격정보 개발자 표로 직무내용에 대한 정보를 제공합니다.</caption>
+										<colgroup>
+											<col class="width150">
+											<col class="widthauto">
+										</colgroup>
+										<thead>
+											<tr>
+												<th style="padding: 10px 0;" colspan="2" scope="col">개발자 
+					                        				(공인)
+					                        			</th>
+											</tr>
+										</thead>
+										<tbody>
+											<tr>
+												<th style="padding: 10px 0;" scope="row">직무내용</th>
+												<td>
+													 데이터베이스와 데이터 모델링에 대한 지식을 바탕으로 응용 소프트웨어를 개발하면서 데이터를 조작하고 추출하는데 있어서 정확하고 최적의 성능을 발휘하는 SQL을 작성하는 직무를 수행
+												</td>
+											</tr>
+										</tbody>
+									</table>
+								
+							</article>
+							<!-- 자격정보 end -->
+							<div class="space30"></div>
+
+							<!-- 자격취득현황 start -->
+							<article class="content_result">
+								<h4>자격취득현황</h4>
+								
+									<div class="board_info">
+										<p>
+											[
+											1
+											/
+											3
+											pages ] 총
+											30
+											건이 검색되었습니다.
+										</p>
+										<!-- 20200302 kbk 차트보기 숨김
+											<button type="button" onclick="qulGrdStatChartPopup('3675');" class="btn_m fr" title="차트보기">차트보기</button>
+											-->
+										<div class="clear"></div>
+									</div>
+									<!-- 자격취득현황  차트 팝업 레이어 -->
+									<div id="qulGrdStatChartPopupDv" class="ui-widget" style="background-color: #fff;" title="자격취득현황 차트">
+										
+											
+											
+												<input type="hidden" name="rdoChart" value="0000" />
+											
+										
+										<label style="display: inline; float: right;">※ 최근 5년간의 자격취득현황 입니다.</label>
+
+										<!-- 차트 display 부 -->
+										<div id="chartAreaDV" style="height: 92%; margin-top: 25px;"></div>
+									</div>
+									<!-- 자격취득현황  차트 팝업 레이어 end -->
+								
+								<div class="board_info">
+									<p style="color:#EC4651; font-weight: 600;">
+										※ <span style="color:inherit; font-weight:inherit; text-decoration: underline;">자격취득현황은 자격발급기관에서 직접 입력하고 있으며, 입력 시점에 따라 실제 수치와 차이가 있을 수 있습니다.<br>또한, 미입력된 데이터가 존재할 수 있습니다.</span> (해당 자격발급기관에 문의 요망)
+									</p>
+									<div class="clear"></div>
+								</div>
+								<table id="grdStatTb" class="board_list">
+									<caption>자격취득 현황 표로 검정연도,자격등급,검정횟수,접수자수,응시자수,취득자수,합격률로 구성되어 있습니다.</caption>
+									<colgroup>
+										<col class="width100" />
+										<col class="widthauto" />
+										<col class="width100" />
+										<col class="width90" />
+										<col class="width90" />
+										<col class="width90" />
+										<col class="width90" />
+									</colgroup>
+									<thead>
+										<tr>
+											<th scope="col">검정연도</th>
+											<th scope="col">자격등급</th>
+											<th scope="col">검정횟수</th>
+											<th scope="col">접수자수</th>
+											<th scope="col">응시자수</th>
+											<th scope="col">취득자수</th>
+											<th scope="col">합격률</th>
+										</tr>
+									</thead>
+									<tbody>
+										
+										
+										
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2025</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>전문가(공인)</td>
+												
+
+												
+													
+													
+														
+														
+															<td>2</td>
+															<td>1,656</td>
+															<td>1,086</td>
+														
+
+														<td>39</td>
+														<td>3.59</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2025</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>개발자(공인)</td>
+												
+
+												
+													
+													
+														
+														
+															<td>4</td>
+															<td>88,440</td>
+															<td>62,664</td>
+														
+
+														<td>26,121</td>
+														<td>41.68</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2024</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>전문가(공인)</td>
+												
+
+												
+													
+													
+														
+														
+															<td>2</td>
+															<td>1,316</td>
+															<td>1,051</td>
+														
+
+														<td>96</td>
+														<td>9.13</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2024</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>개발자(공인)</td>
+												
+
+												
+													
+													
+														
+														
+															<td>4</td>
+															<td>75,042</td>
+															<td>59,202</td>
+														
+
+														<td>33,916</td>
+														<td>57.29</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2023</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>전문가(공인)</td>
+												
+
+												
+													
+													
+														
+														
+															<td>2</td>
+															<td>828</td>
+															<td>654</td>
+														
+
+														<td>59</td>
+														<td>9.02</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2023</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>개발자(공인)</td>
+												
+
+												
+													
+													
+														
+														
+															<td>4</td>
+															<td>62,122</td>
+															<td>48,794</td>
+														
+
+														<td>23,329</td>
+														<td>47.81</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2022</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>전문가(공인)</td>
+												
+
+												
+													
+													
+														
+														
+															<td>4</td>
+															<td>830</td>
+															<td>629</td>
+														
+
+														<td>64</td>
+														<td>10.17</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2022</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>개발자(공인)</td>
+												
+
+												
+													
+													
+														
+														
+															<td>4</td>
+															<td>42,193</td>
+															<td>32,474</td>
+														
+
+														<td>15,845</td>
+														<td>48.79</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2021</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>전문가(공인)</td>
+												
+
+												
+													
+													
+														
+														
+															<td>4</td>
+															<td>823</td>
+															<td>654</td>
+														
+
+														<td>42</td>
+														<td>6.42</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2021</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>개발자(공인)</td>
+												
+
+												
+													
+													
+														
+														
+															<td>4</td>
+															<td>29,144</td>
+															<td>23,391</td>
+														
+
+														<td>13,225</td>
+														<td>56.54</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2020</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>전문가(공인)</td>
+												
+
+												
+													
+													
+														
+														
+															<td>4</td>
+															<td>574</td>
+															<td>433</td>
+														
+
+														<td>42</td>
+														<td>9.7</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2020</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>개발자(공인)</td>
+												
+
+												
+													
+													
+														
+														
+															<td>4</td>
+															<td>13,822</td>
+															<td>10,933</td>
+														
+
+														<td>6,399</td>
+														<td>58.53</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2019</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>전문가(공인)</td>
+												
+
+												
+													
+													
+														
+														
+															<td>4</td>
+															<td>654</td>
+															<td>545</td>
+														
+
+														<td>24</td>
+														<td>4.4</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2019</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>개발자(공인)</td>
+												
+
+												
+													
+													
+														
+														
+															<td>4</td>
+															<td>11,768</td>
+															<td>9,663</td>
+														
+
+														<td>4,707</td>
+														<td>48.71</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2018</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>전문가(공인)</td>
+												
+
+												
+													
+													
+														
+														
+															<td>4</td>
+															<td>479</td>
+															<td>411</td>
+														
+
+														<td>37</td>
+														<td>9</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2018</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>개발자(공인)</td>
+												
+
+												
+													
+													
+														
+														
+															<td>4</td>
+															<td>6,611</td>
+															<td>5,472</td>
+														
+
+														<td>2,077</td>
+														<td>37.96</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2017</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>전문가(공인)</td>
+												
+
+												
+													
+													
+														
+														
+															<td>4</td>
+															<td>416</td>
+															<td>359</td>
+														
+
+														<td>29</td>
+														<td>8.08</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2017</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>개발자(공인)</td>
+												
+
+												
+													
+													
+														
+														
+															<td>4</td>
+															<td>5,451</td>
+															<td>4,550</td>
+														
+
+														<td>1,442</td>
+														<td>31.69</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2016</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>전문가(공인)</td>
+												
+
+												
+													
+													
+														
+														
+															<td>4</td>
+															<td>369</td>
+															<td>322</td>
+														
+
+														<td>29</td>
+														<td>9.01</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2016</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>개발자(공인)</td>
+												
+
+												
+													
+													
+														
+														
+															<td>4</td>
+															<td>4,256</td>
+															<td>3,682</td>
+														
+
+														<td>1,393</td>
+														<td>37.83</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2015</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>전문가(공인)</td>
+												
+
+												
+													
+													
+														
+														
+															<td>4</td>
+															<td>419</td>
+															<td>350</td>
+														
+
+														<td>51</td>
+														<td>14.57</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2015</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>개발자(공인)</td>
+												
+
+												
+													
+													
+														
+														
+															<td>4</td>
+															<td>5,435</td>
+															<td>4,194</td>
+														
+
+														<td>1,499</td>
+														<td>35.74</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2014</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>전문가(공인)</td>
+												
+
+												
+													
+													
+														
+														
+															<td>4</td>
+															<td>475</td>
+															<td>412</td>
+														
+
+														<td>34</td>
+														<td>8.25</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2014</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>개발자(공인)</td>
+												
+
+												
+													
+													
+														
+														
+															<td>4</td>
+															<td>3,725</td>
+															<td>3,042</td>
+														
+
+														<td>829</td>
+														<td>27.25</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2013</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>전문가(공인)</td>
+												
+
+												
+													
+													
+														
+														
+															<td>4</td>
+															<td>551</td>
+															<td>466</td>
+														
+
+														<td>42</td>
+														<td>9.01</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2013</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>개발자(공인)</td>
+												
+
+												
+													
+													
+														
+														
+															<td>4</td>
+															<td>2,725</td>
+															<td>2,241</td>
+														
+
+														<td>644</td>
+														<td>28.74</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2012</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>전문가</td>
+												
+
+												
+													
+													
+														
+														
+															<td>3</td>
+															<td>457</td>
+															<td>335</td>
+														
+
+														<td>42</td>
+														<td>12.54</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2012</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>개발자</td>
+												
+
+												
+													
+													
+														
+														
+															<td>4</td>
+															<td>1,097</td>
+															<td>844</td>
+														
+
+														<td>267</td>
+														<td>31.64</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2011</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>전문가</td>
+												
+
+												
+													
+													
+														
+														
+															<td>3</td>
+															<td>268</td>
+															<td>205</td>
+														
+
+														<td>24</td>
+														<td>11.71</td>
+													
+												
+
+												
+												
+											</tr>
+										
+											<tr>
+												
+												
+												<!-- 검정연도 -->
+												
+												
+													<td>2011</td>
+												
+												
+												<!-- 자격등급 -->
+												
+												
+													<td>개발자</td>
+												
+
+												
+													
+													
+														
+														
+															<td>4</td>
+															<td>717</td>
+															<td>543</td>
+														
+
+														<td>172</td>
+														<td>31.68</td>
+													
+												
+
+												
+												
+											</tr>
+										
+									</tbody>
+								</table>
+								
+
+								
+
+								<form id="qulDetailVO" name="detailForm" action="/inf/qul/infQulBasDetail.do?qulId=3675" method="post">
+									<input id="qulId" name="qulId" type="hidden" value="3675"/>
+									<input id="qulNm" name="qulNm" type="hidden" value="SQL"/>
+									<input id="qulEngNm" name="qulEngNm" type="hidden" value="Structured Query Language"/>
+									<input id="searchQulCpCd" name="searchQulCpCd" type="hidden" value="0000"/>
+									<input id="searchQulNm" name="searchQulNm" type="hidden" value=""/>
+									<input id="searchMemNm" name="searchMemNm" type="hidden" value=""/>
+									<input id="searchNcsCd1" name="searchNcsCd1" type="hidden" value="0000"/>
+									<input id="searchNcsCd2" name="searchNcsCd2" type="hidden" value="0000"/>
+									<input id="searchKrvCd1" name="searchKrvCd1" type="hidden" value="0000"/>
+									<input id="searchKrvCd2" name="searchKrvCd2" type="hidden" value="0000"/>
+									<input id="searchQulRegYy" name="searchQulRegYy" type="hidden" value="0000"/>
+									<input id="searchQulRegNum" name="searchQulRegNum" type="hidden" value=""/>
+									<input id="pageIndex" name="pageIndex" type="hidden" value="1"/>
+									<!-- 2015기능개선추가_psw -->
+									<input type="hidden" name="searchQulGrdStatYN" value="" />
+									<input id="searchMemBunNum1" name="searchMemBunNum1" type="hidden" value=""/>
+
+									<!-- paging -->
+									<!--	20200310 kbk 제거
+										
+											<div class="page_num alignC">
+												<ul>
+													<li class="active">1</li><li onclick="f_retrieveLinkPageList(2); return false;"><a href="#!" onclick="f_retrieveLinkPageList(2); return false;">2</a></li><li onclick="f_retrieveLinkPageList(3); return false;"><a href="#!" onclick="f_retrieveLinkPageList(3); return false;">3</a></li>
+
+													<input id="pageIndex" name="pageIndex" type="hidden" value="1"/>
+												</ul>
+											</div>
+										
+										
+										-->
+									<!-- paging -->
+								</form>
+
+
+								<div class="space20"></div>
+								<div class="fr">
+									<button type="button" onclick="move('/inf/qul/infQulList.do', '', '');" class="btn_l" title="목록 버튼">목록</button>
+								</div>
+							</article>
+							<!-- 자격취득현황 end -->
+						</article>
+					</section>
+					<!-- 민간자격관리기관 정보 팝업내용 start -->
+					<!-- 보유자격 목록 팝업 레이어 -->
+					<div id="qulCpListPopupDv" title="보유자격 목록(등록자격)">
+						<table id="qulCpListTb" class="board_list">
+							<caption>기관이 보유한 자격에 대한 순번,자격명,공동발급기관,상세(바로가기 링크)를 보여줍니다.</caption>
+							<colgroup>
+								<col class="width60" />
+								<col class="widthauto" />
+								<col class="width100" />
+								<col class="width90" />
+							</colgroup>
+							<thead>
+								<tr>
+									<th scope="col">순번</th>
+									<th scope="col">자격명</th>
+									<th scope="col">공동발급기관</th>
+									<th scope="col">상세</th>
+								</tr>
+							</thead>
+							<tbody>
+							</tbody>
+						</table>
+						<div id="divQulPage" class="page_num alignC"></div>
+					</div>
+				</div>
+
+				<!-- file download 용 -->
+				<form id="fileForm" name="fileForm" method="post" action="/cmm/fileDownload.do">
+					<input type="hidden" id="filePath" name="filePath" value="" /> <input type="hidden" id="fileNm" name="fileNm" />
+				</form>
+
+				<div class="clear"></div>
+			</div>
+			<!-- contents end -->
+
+			<!--footer-->
+			
+
+
+</script>
+<!--footer-->			
+<footer id="footer" aria-hidden="false">
+	<div class="foot-quick">
+		<div class="inner">
+			<button type="button" class="link" title="관련기관 레이어" aria-controls="popFootLink" aria-haspopup="dialog" onclick="openRelatedOrganizationPopup();">관련기관</button>
+		</div>
+	</div>
+	<div class="inner">
+		<div class="f-logo">
+			<img src="/new_images/logo_res.png?v=c7b48209-338" class="logo-im"  alt="pqi 민간자격정보서비스" style="height:44px;">
+		</div>
+		<div class="f-cnt">
+			<div class="f-info">
+				<p class="info-addr">(30147) 세종특별자치시 시청대로 370 세종국책연구단지 사회정책동 한국직업능력연구원 자격연구센터</p>
+				<ul class="info-cs">
+					<li><strong class="strong">전화 044-415-5000, 3808</strong></li>
+					<li><strong class="strong">팩스 044-415-3638</strong></li>
+				</ul>
+			</div>				
+			<div class="f-link">
+				<div class="link-go">
+					<a href="/jin/ctc/jinCtcView.do" class="footer-contact-link">민간자격 관련문의처</a>
+				</div>
+			</div>
+		</div>
+		
+		<div class="f-btm">
+			<div class="f-btm-text">
+				<div class="f-menu">
+					<a href="/jin/pct/jinPctView.do#" class="point">개인정보처리방침</a>
+					<a href="/jin/mal/jinMalView.do">이메일무단수집거부</a>
+					<a href="http://webwatch.or.kr/Situation/WA_Situation.html?MenuCD=110" target="_blank" title="웹와치(WebWatch) 새창으로 열림">웹 접근성 품질인증 마크 획득</a>
+				</div>
+				<p class="f-copy">Copyright ⓒ 교육부 & 한국직업능력연구원. 모든 권리 보유.</p>
+				<!-- <p class="f-copy">© Ministry of Education & KRIVET. All rights reserved.</p> -->
+			</div>
+			<!-- <div class="f-btm-ban">
+				<span class="sr-only">교육부</span>
+				<span class="ban-txt">이 누리집은 한국직업능력연구원 자격연구센터에서 교육부로부터 위탁 받아 운영 중입니다.</span>
+				<span class="ban-txt">이 누리집은 교육부 산하기관 누리집입니다.</span>
+			</div> -->
+			<!-- <div class="f-btm-ban">
+				<span class="sr-only">교육부</span>
+				<span class="ban-txt">이 누리집은 한국직업능력연구원 자격연구센터에서 교육부로부터 위탁 받아 운영 중입니다.</span>
+				<span class="ban-txt">이 누리집은 교육부 산하기관 누리집입니다.</span>
+			</div> -->
+		</div>
+	</div>
+</footer>
+<!-- 레이어 : 소속기관 링크 -->
+<div class="popup-wrap related-org-popup-layer" data-type="full" id="popFootLink">
+	<div class="popup-in">
+		<div class="popup">
+			<div class="popup-head">
+				<h1 class="pop-tit">관련기관</h1>
+			</div>
+			<div class="popup-body" id="relatedOrganizationPopupContent"></div>
+			<button type="button" class="popup-close"><span class="sr-only">레이어 닫기</span></button>
+		</div>
+	</div>
+</div>
+
+<script type="text/javascript">
+	function prepareRelatedOrganizationPopup() {
+		var popup = document.getElementById("popFootLink");
+		if (popup && popup.parentNode !== document.body) {
+			document.body.appendChild(popup);
+		}
+	}
+
+	function openRelatedOrganizationPopup() {
+		prepareRelatedOrganizationPopup();
+		var content = document.getElementById("relatedOrganizationPopupContent");
+		if (content.getAttribute("data-loaded") === "Y") {
+			common.popupEvent("#popFootLink");
+			return;
+		}
+
+		var request = new XMLHttpRequest();
+		request.open("GET", "/main/relatedOrganizationPopup.do", true);
+		request.onreadystatechange = function() {
+			if (request.readyState !== 4) {
+				return;
+			}
+			var html = request.status === 200
+					? request.responseText.replace(/^\s+|\s+$/g, "") : "";
+			if (!html) {
+				alert("현재 공개 중인 관련기관 정보가 없습니다.");
+				return;
+			}
+			content.innerHTML = html;
+			content.setAttribute("data-loaded", "Y");
+			common.popupEvent("#popFootLink");
+		};
+		request.send(null);
+	}
+
+	function closeRelatedOrganizationPopup() {
+		var popup = document.getElementById("popFootLink");
+		if (!popup || !popup.classList.contains("is-open")) {
+			return;
+		}
+
+		var closeButton = popup.querySelector(".popup-close");
+		if (closeButton) {
+			closeButton.click();
+		}
+	}
+
+	document.addEventListener("keydown", function(event) {
+		var escapePressed = event.key === "Escape" || event.keyCode === 27;
+		if (!escapePressed) {
+			return;
+		}
+
+		var popup = document.getElementById("popFootLink");
+		if (popup && popup.classList.contains("is-open")) {
+			event.preventDefault();
+			closeRelatedOrganizationPopup();
+		}
+	});
+</script>
+
+<script type="text/javascript">
+	$(document).ready(function() {
+		$(".footerSiteButton").click(function() {
+			$(".footerSite").toggleClass("footerSite_show");
+			$(".ft_site_button").toggleClass("footerSite_site_box");
+			$(".siteButton").toggleClass("siteButtonChg");
+			$(".closeButton").toggleClass("closeButtonChg");
+		});
+		$(".footerSiteButton").click(function(e) {
+			e.preventDefault();
+		})
+	});
+</script>
+			<!--footer-->
+
+			<form id="viewForm" name="viewForm" method="get" action="/brd/brdView.do">
+				<input type="hidden" name="bbsKindId" value="1" />
+				<input type="hidden" name="bbsId" value="3369" />
+			</form>
+		</div>
+	</div>
+<!-- 두 번째 jQuery 로드 (new_js/jquery.min.js) -->
+<script src="/new_js/jquery.min.js?v=c7b48209-338"></script>
+<script>
+  // 두 번째 jQuery 버전 보호 (필요한 경우)
+  var jQueryNew = $.noConflict(true);
+</script>
+
+<!-- 두 번째 jQuery를 사용하는 스크립트 -->
+<script src="/new_js/ui-pattern-script.js?v=c7b48209-338"></script>
+<script src="/new_js/ui-script.js?v=c7b48209-338"></script>
+<div class="gnb-backdrop" style="display: none;"></div>
+</body>
+</html>
+
+			<!--footer-->
+			<script type="text/javascript">
+					//gnb li 'active' 추가
+					$("#gnb li:nth-child(2):not(#gnb li > ul li)").addClass("active");
+					//left menu actived
+					$(".admin_left li:nth-child(1) ul li:nth-child(2)").addClass("actived");
+					
+					//닫기
+					$(".btn_close_pop").click(function(){
+						$(".dimmed, .ly_pop").hide();
+					});	
+				</script>
+		</div>
+	</div>
+</body>
+</html>
