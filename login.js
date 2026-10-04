@@ -22,7 +22,7 @@ async function api(fn, args) {
 const local = () => { try { return JSON.parse(lsGet(KEY) || "{}"); } catch (e) { return {}; } };
 const hasProgress = d => !!(d && (Object.keys(d.log || {}).length || (d.known || []).length || (d.hist || []).length));
 // 저장할 때 진행 중 모의고사·화면 테마는 기기마다 따로 둔다
-const pack = d => JSON.stringify({ log: d.log || {}, wrong: d.wrong || [], known: d.known || [], hist: d.hist || [], day: d.day || {}, goal: d.goal || 0 });
+const pack = d => JSON.stringify({ log: d.log || {}, wrong: d.wrong || [], known: d.known || [], hist: d.hist || [], day: d.day || {}, goal: d.goal || 0, bm: d.bm || { q: [], c: [] } });
 
 // 두 기록 합치기 — 어느 쪽도 버리지 않는다: 문항 기록은 더 많이 푼 쪽, 목록은 합집합
 function merge(a, b) {
@@ -33,7 +33,7 @@ function merge(a, b) {
   for (const r of [...(b.hist || []), ...(a.hist || [])]) if (!seen.has(hk(r))) { seen.add(hk(r)); hist.push(r); }
   const day = Object.assign({}, b.day); // 날짜별 푼 수: 더 많이 센 쪽
   for (const [k, v] of Object.entries(a.day || {})) if (!day[k] || (v.n || 0) > (day[k].n || 0)) day[k] = v;
-  return { log, wrong: uni(a.wrong, b.wrong), known: uni(a.known, b.known), hist: hist.sort((x, y) => String(x.d).localeCompare(String(y.d))), day, goal: a.goal || b.goal || 0 };
+  return { log, wrong: uni(a.wrong, b.wrong), known: uni(a.known, b.known), hist: hist.sort((x, y) => String(x.d).localeCompare(String(y.d))), day, goal: a.goal || b.goal || 0, bm: { q: uni((a.bm || {}).q, (b.bm || {}).q), c: uni((a.bm || {}).c, (b.bm || {}).c) } };
 }
 function apply(d) { // 기기 고유 값(테마·진행 중 시험)은 유지하고 학습 기록만 바꾼다
   const cur = local();

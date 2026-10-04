@@ -127,6 +127,12 @@ h3{margin:0;font-size:18px;line-height:1.45}
 .chip{background:var(--panel);border:1.5px solid var(--line);padding:6px 12px;min-height:38px;font-size:14px;font-weight:700;cursor:pointer}
 .chip[aria-pressed="true"]{border-color:var(--ink);background:var(--ink);color:var(--panel)}
 .toast{position:fixed;left:50%;top:18px;transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:12px 18px;font-weight:700;z-index:100;box-shadow:0 6px 20px rgba(0,0,0,.25)}
+.bm{background:var(--panel);border:1.5px solid var(--line);color:var(--muted);font-size:13px;font-weight:700;padding:3px 10px;min-height:30px;cursor:pointer;line-height:1.3;white-space:nowrap}
+.bm[aria-pressed="true"]{border-color:#c98a00;color:#9a6a00;background:#fff4d6}
+:root[data-theme="dark"] .bm[aria-pressed="true"]{color:#ffd166;background:#3a2f12}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .bm[aria-pressed="true"]{color:#ffd166;background:#3a2f12}}
+.qmeta .bm{margin-left:auto}
+.blk-h{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
 .qtop{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;line-height:1.3}
 .qtop-r{display:flex;align-items:center;gap:8px;margin-left:auto}
 .cnt{font-family:var(--mono);font-size:13px;color:var(--muted);white-space:nowrap}
@@ -319,7 +325,7 @@ footer{font-size:13.5px;color:var(--muted);line-height:1.8;display:flex;flex-dir
     <button data-mode="concept" aria-pressed="false"><i>01</i><span>개념정리</span></button>
     <button data-mode="card" aria-pressed="false"><i>02</i><span>암기카드</span></button>
     <button data-mode="quiz" aria-pressed="true"><i>03</i><span>문제풀이</span></button>
-    <button data-mode="wrong" aria-pressed="false"><i>04</i><span>오답노트</span></button>
+    <button data-mode="wrong" aria-pressed="false"><i>04</i><span>오답·북마크</span></button>
     <button data-mode="mock" aria-pressed="false"><i>05</i><span>모의고사</span></button>
     <button data-mode="trend" aria-pressed="false"><i>06</i><span>출제분석</span></button>
   </nav>

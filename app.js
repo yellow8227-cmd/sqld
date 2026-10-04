@@ -15,6 +15,7 @@ let S = { log: {}, wrong: [], known: [], theme: "", mock: null, hist: [] };
 try { Object.assign(S, JSON.parse(localStorage.getItem(KEY) || "{}")); } catch (e) {}
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} };
 const DAY = 864e5;
+S.bm = S.bm || { q: [], c: [] }; // 북마크: 문제 id, 개념 블록 키(주제|소제목)
 
 // 문제은행 변화 감지: 지난번에 없던 문항 = '새로 추가된 문제'
 // (처음 온 사람에게는 표시하지 않는다. 이 기능 이전에 쓰던 사람은 첫 81문항을 본 것으로 본다)
@@ -178,9 +179,9 @@ function stats() {
 }
 
 // ── 문제 카드
-function qBody(q, numLabel, noSub, noKill) {
+function qBody(q, numLabel, noSub, noKill, noBm) {
   const seen = new Set();
-  let html = `<div class="qmeta">${numLabel ? `<span class="qid">${numLabel}</span>` : ""}<span class="qid">${q.id}</span>${noSub ? "" : `<span class="tag">${esc(subOf(q))}</span>`}${isKill(q) && !noKill ? `<span class="tag kill">고오답 유형</span>` : ""}${lvTag(q.lv)}</div>
+  let html = `<div class="qmeta">${numLabel ? `<span class="qid">${numLabel}</span>` : ""}<span class="qid">${q.id}</span>${noSub ? "" : `<span class="tag">${esc(subOf(q))}</span>`}${isKill(q) && !noKill ? `<span class="tag kill">고오답 유형</span>` : ""}${noBm ? "" : bmBtn("q", q.id)}${lvTag(q.lv)}</div>
     <div class="qth">${esc(String(q.th).replace(/^\s*\d과목\s*\|\s*/, ""))}</div>
     <p class="qtext">${md(q.q, seen)}</p>`;
   if (q.tb) html += `<div class="tables">${q.tb.map(t => tbl(t, t.n)).join("")}</div>`;
@@ -218,6 +219,19 @@ function bindConceptLinks(root) {
 }
 
 // ── 문제풀이 / 오답노트
+// ── 북마크: 문제와 개념 블록. 눌러서 켜고 끈다
+const isBm = (kind, key) => S.bm[kind].includes(key);
+const bmBtn = (kind, key) => { const on = isBm(kind, key); return `<button class="bm" data-bm="${kind}" data-key="${esc(key)}" aria-pressed="${on}" title="${on ? "북마크 해제" : "북마크 — 오답·북마크 탭에서 다시 보기"}">${on ? "★ 북마크됨" : "☆ 북마크"}</button>`; };
+document.addEventListener("click", e => {
+  const b = e.target.closest && e.target.closest("[data-bm]"); if (!b) return;
+  const kind = b.dataset.bm, key = b.dataset.key, L = S.bm[kind];
+  if (L.includes(key)) S.bm[kind] = L.filter(x => x !== key); else L.push(key);
+  save();
+  b.outerHTML = bmBtn(kind, key);
+  stats();
+  if (mode === "wrong" && quiz.src === "cbm") quizView(true, "cbm");
+});
+
 // ── 찍어서 맞힌 문제: 맞았어도 아는 게 아니므로 오답노트로 보낸다 (다시 누르면 취소)
 function markGuess(id, on) {
   const L = S.log[id]; if (!L) return;
@@ -277,11 +291,11 @@ function recommend(pool) {
   out.push(...A);
   return { ids: out.map(x => x.q.id), why, counts: { wrong: R.filter(x => x.r.k === "wrong").length, review: R.filter(x => x.r.k === "review").length, added: R.filter(x => x.r.k === "added").length, fresh: R.filter(x => ["weak", "kill", "new"].includes(x.r.k)).length } };
 }
-const REASON_LABEL = { wrong: "다시 도전", again: "방금 틀린 문제", review: "복습", added: "NEW", weak: "약점 보강", kill: "고오답", new: "처음", ahead: "미리 복습" };
-const REASON_STYLE = { wrong: "kill", ahead: "lv", review: "rv", added: "new", weak: "kill", kill: "kill", new: "lv", again: "kill" };
+const REASON_LABEL = { bm: "북마크", wrong: "다시 도전", again: "방금 틀린 문제", review: "복습", added: "NEW", weak: "약점 보강", kill: "고오답", new: "처음", ahead: "미리 복습" };
+const REASON_STYLE = { bm: "rv", wrong: "kill", ahead: "lv", review: "rv", added: "new", weak: "kill", kill: "kill", new: "lv", again: "kill" };
 let quiz = { subj: 0, sub: "", order: "rec", kill: false, list: [], i: 0, pick: null, wrongMode: false, why: {}, counts: null };
 function poolFor() {
-  if (quiz.wrongMode) return S.wrong.map(id => byId[id]).filter(Boolean);
+  if (quiz.wrongMode) return (quiz.src === "bm" ? S.bm.q : S.wrong).map(id => byId[id]).filter(Boolean);
   return QB.filter(q => (!quiz.subj || q.s === quiz.subj) && (!quiz.kill || isKill(q)));
 }
 function buildList() {
@@ -294,11 +308,13 @@ function buildList() {
   else if (quiz.wrongMode) L.sort((a, b) => (S.log[a.id] ? S.log[a.id].ok / S.log[a.id].n : 0) - (S.log[b.id] ? S.log[b.id].ok / S.log[b.id].n : 0) || dueOf(S.log[a.id] || {}) - dueOf(S.log[b.id] || {}));
   else { const o = SUBS.map(x => x.n); L.sort((a, b) => a.s - b.s || o.indexOf(subOf(a)) - o.indexOf(subOf(b)) || a.id.localeCompare(b.id, "en", { numeric: true })); }
   const st = subStats(), now = Date.now();
-  L.forEach(q => { quiz.why[q.id] = quiz.wrongMode ? { k: "wrong", t: `오답노트 — ${S.log[q.id] && S.log[q.id].guess ? "찍어서 맞힌 문제 · " : ""}${S.log[q.id] ? `${S.log[q.id].n}번 중 ${S.log[q.id].ok}번 정답 · 마지막 풀이 ${ago(S.log[q.id].t) || "기록 없음"}` : "틀린 문제"}` } : reasonFor(q, st, now); });
+  L.forEach(q => { quiz.why[q.id] = quiz.wrongMode && quiz.src === "bm" ? { k: "bm", t: "북마크한 문제" } : quiz.wrongMode ? { k: "wrong", t: `오답노트 — ${S.log[q.id] && S.log[q.id].guess ? "찍어서 맞힌 문제 · " : ""}${S.log[q.id] ? `${S.log[q.id].n}번 중 ${S.log[q.id].ok}번 정답 · 마지막 풀이 ${ago(S.log[q.id].t) || "기록 없음"}` : "틀린 문제"}` } : reasonFor(q, st, now); });
   quiz.list = L.map(q => q.id); quiz.i = 0; quiz.pick = null;
 }
-function quizView(wrongMode) {
-  if (quiz.wrongMode !== wrongMode) { quiz.wrongMode = wrongMode; quiz.sub = ""; quiz.subj = 0; quiz.kill = false; }
+function quizView(wrongMode, src) {
+  src = wrongMode ? (src || quiz.src || "wrong") : "";
+  if (quiz.wrongMode !== wrongMode || quiz.src !== src) { quiz.wrongMode = wrongMode; quiz.src = src; quiz.sub = ""; quiz.subj = 0; quiz.kill = false; }
+  if (src === "cbm") return conceptBmView();
   buildList(); renderQuiz();
 }
 function subSelect(pool) {
@@ -314,6 +330,23 @@ function subSelect(pool) {
   }
   return h;
 }
+function reviewSeg() {
+  const t = [["wrong", `오답노트 ${S.wrong.length}`], ["bm", `북마크 문제 ${S.bm.q.length}`], ["cbm", `북마크 개념 ${S.bm.c.length}`]];
+  return `<div class="seg" role="group" aria-label="보기">${t.map(([k, n]) => `<button data-src="${k}" aria-pressed="${quiz.src === k}">${n}</button>`).join("")}</div>`;
+}
+function bindReviewSeg() { view.querySelectorAll("[data-src]").forEach(b => b.onclick = () => quizView(true, b.dataset.src)); }
+function conceptBmView() {
+  const items = S.bm.c.map(k => { const [tp, h] = [k.slice(0, k.indexOf("|")), k.slice(k.indexOf("|") + 1)]; const c = CONCEPTS.find(x => x.tp === tp); return c && { tp, b: c.b.find(x => x.h === h), k }; }).filter(x => x && x.b);
+  let html = `<section class="panel frame"><h2>오답·북마크</h2>${reviewSeg()}<p class="lead">개념정리에서 ☆ 북마크를 누른 블록이 모인다.</p></section>`;
+  if (!items.length) html += `<section class="panel"><p class="empty">북마크한 개념이 없다. 개념정리의 소제목 옆 ☆ 북마크를 누르면 여기에 모인다.</p></section>`;
+  for (const it of items) {
+    const b = it.b, seen = new Set();
+    html += `<section class="panel"><div class="spread"><span class="pill sub">${esc(TOPICS[it.tp].n)}</span><button class="link" data-concept="${it.tp}">개념 전체 보기 →</button></div>
+      <div class="blk"><div class="blk-h"><h3>${esc(b.h)}</h3>${bmBtn("c", it.k)}</div>
+        ${b.code ? `<pre class="inline">${sqlHL(b.code)}</pre>` : ""}${b.t ? `<p>${md(b.t, seen)}</p>` : ""}${b.tb ? tbl(b.tb, "", true) : ""}${b.memo ? `<span class="memo"><i>암기</i>${esc(b.memo)}</span>` : ""}</div></section>`;
+  }
+  view.innerHTML = html; bindReviewSeg(); bindConceptLinks();
+}
 function weakBars() { // 내 기록으로 계산한 세부항목별 정답률 (낮은 순)
   const by = {};
   for (const [id, L] of Object.entries(S.log)) { const q = byId[id]; if (!q) continue; const k = subOf(q); const t = by[k] = by[k] || { n: 0, ok: 0 }; t.n += L.n; t.ok += L.ok; }
@@ -327,9 +360,9 @@ function renderQuiz() {
   const wm = quiz.wrongMode, pool = poolFor();
   const id = quiz.list[quiz.i], q = byId[id];
   let html = `<section class="panel frame">
-    <h2>${wm ? "오답노트" : "문제풀이"}</h2>
-    ${wm ? `<p class="lead">틀린 문제와 찍어서 맞힌 문제가 모인다. 다시 맞히면 빠진다.</p>` : ""}
-    ${wm ? weakBars() : `<div class="seg" role="group" aria-label="과목">${["전체", "1과목 모델링", "2과목 SQL"].map((t, i) => `<button data-subj="${i}" aria-pressed="${quiz.subj === i}">${t}</button>`).join("")}</div>`}
+    <h2>${wm ? "오답·북마크" : "문제풀이"}</h2>
+    ${wm ? reviewSeg() + `<p class="lead">${quiz.src === "bm" ? "☆ 북마크를 누른 문제가 모인다. 북마크를 끄기 전까지 남는다." : "틀린 문제와 찍어서 맞힌 문제가 모인다. 다시 맞히면 빠진다."}</p>` : ""}
+    ${wm ? (quiz.src === "wrong" ? weakBars() : "") : `<div class="seg" role="group" aria-label="과목">${["전체", "1과목 모델링", "2과목 SQL"].map((t, i) => `<button data-subj="${i}" aria-pressed="${quiz.subj === i}">${t}</button>`).join("")}</div>`}
     <div class="filters">
       <label class="field"><span>세부항목 (공식 출제기준)</span><select id="f-sub">${subSelect(pool)}</select></label>
       ${wm ? "" : `<label class="field"><span>풀이 순서</span><select id="f-order">${[["rec", "추천 — 내 기록 기반 (복습 + 새 문제)"], ["seq", "출제기준 순서"], ["new", "안 푼 문제만"], ["missed", "한 번이라도 틀린 문제"], ["rand", "무작위"]].map(([k, t]) => `<option value="${k}" ${quiz.order === k ? "selected" : ""}>${t}</option>`).join("")}</select></label>`}
@@ -339,8 +372,8 @@ function renderQuiz() {
     ${wm ? "" : `<div class="row"><button class="toggle" id="f-kill" aria-pressed="${quiz.kill}"><span class="box">${quiz.kill ? "✓" : ""}</span>고오답 유형만 풀기 (${QB.filter(isKill).length}문항)</button></div>`}
   </section>`;
   if (!q) {
-    html += `<section class="panel"><p class="empty">${wm ? "오답노트가 비어 있다. 문제풀이에서 틀린 문제가 여기에 모인다." : "조건에 맞는 문제가 없다. 필터를 바꿔 보자."}</p></section>`;
-    view.innerHTML = html; bindQuizFilters(); return;
+    html += `<section class="panel"><p class="empty">${wm ? (quiz.src === "bm" ? "북마크한 문제가 없다. 문제 위의 ☆ 북마크를 누르면 여기에 모인다." : "오답노트가 비어 있다. 문제풀이에서 틀린 문제가 여기에 모인다.") : "조건에 맞는 문제가 없다. 필터를 바꿔 보자."}</p></section>`;
+    view.innerHTML = html; bindQuizFilters(); bindReviewSeg(); return;
   }
   const { html: body, seen } = qBody(q, "", true, quiz.why[id] && quiz.why[id].k === "kill");
   html += `<section class="panel frame" id="qcard">
@@ -356,7 +389,7 @@ function renderQuiz() {
     ${quiz.pick != null ? expHtml(q, quiz.pick, seen) : ""}
     <div class="navrow"><button class="btn" data-nav="-1" ${quiz.i ? "" : "disabled"}>← 이전</button><button class="btn primary" data-nav="1" ${quiz.i < quiz.list.length - 1 ? "" : "disabled"}>다음 문제 →</button></div>
   </section>`;
-  view.innerHTML = html; bindQuizFilters(); bindConceptLinks();
+  view.innerHTML = html; bindQuizFilters(); bindReviewSeg(); bindConceptLinks();
   view.querySelectorAll(".opt").forEach(b => b.onclick = () => choose(+b.dataset.i));
   view.querySelectorAll("[data-nav]").forEach(b => b.onclick = () => go(+b.dataset.nav));
   bindGuess(view);
@@ -366,7 +399,7 @@ function choose(i) {
   const q = byId[quiz.list[quiz.i]];
   quiz.pick = i;
   const ok = record(q, i);
-  if (ok && quiz.wrongMode) { S.wrong = S.wrong.filter(x => x !== q.id); save(); }
+  if (ok && quiz.wrongMode && quiz.src === "wrong") { S.wrong = S.wrong.filter(x => x !== q.id); save(); }
   renderQuiz();
   const exp = view.querySelector(".exp"); if (exp) exp.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -377,7 +410,7 @@ function go(d) {
     quiz.again = quiz.again || {}; quiz.again[quiz.i + 5] = true;
   }
   const n = quiz.i + d;
-  if (quiz.wrongMode && quiz.pick != null && !S.wrong.includes(quiz.list[quiz.i])) { // 맞혀서 빠진 문제는 목록에서 정리
+  if (quiz.wrongMode && quiz.src === "wrong" && quiz.pick != null && !S.wrong.includes(quiz.list[quiz.i])) { // 맞혀서 빠진 문제는 목록에서 정리
     quiz.list.splice(quiz.i, 1); if (d < 0) quiz.i = Math.max(0, quiz.i - 1); quiz.pick = null; renderQuiz(); top(); return;
   }
   if (n < 0 || n >= quiz.list.length) return;
@@ -407,7 +440,7 @@ function conceptView() {
     html += `<section class="panel concept" id="c-${c.tp}">
       <div class="chead"><div><div class="eyebrow">${TOPICS[c.tp].s}과목</div><h2>${esc(TOPICS[c.tp].n)}</h2></div>
         <div class="freq">복원 기출 55→61회 ${spark(c.tp)}</div></div>
-      ${c.b.map(b => `<div class="blk"><h3>${esc(b.h)}</h3>
+      ${c.b.map(b => `<div class="blk"><div class="blk-h"><h3>${esc(b.h)}</h3>${bmBtn("c", c.tp + "|" + b.h)}</div>
         ${b.code ? `<pre class="inline">${sqlHL(b.code)}</pre>` : ""}
         ${b.t ? `<p>${md(b.t, seen)}</p>` : ""}
         ${b.tb ? tbl(b.tb, "", true) : ""}
@@ -495,7 +528,7 @@ function mockView() {
 }
 function mockPaper() {
   const M = S.mock, id = M.ids[M.i], q = byId[id];
-  const { html: body } = qBody(q, `${M.i + 1}번`);
+  const { html: body } = qBody(q, `${M.i + 1}번`, false, false, true);
   const answered = Object.keys(M.ans).length;
   view.innerHTML = `<section class="panel frame" id="qcard">
     <div class="spread"><span class="eyebrow">${setName(M.set)} · ${M.i < 10 ? "제1과목" : "제2과목"}</span><span class="small muted">답안 ${answered} / ${M.ids.length}</span></div>
@@ -633,7 +666,7 @@ document.getElementById("theme-btn").onclick = () => {
 };
 document.getElementById("reset-btn").onclick = () => {
   if (!confirm("풀이 기록·오답노트·외운 카드·모의고사 기록을 모두 지울까?")) return;
-  S = { log: {}, wrong: [], known: [], theme: S.theme, mock: null, hist: [], day: {}, goal: S.goal || 0, bank: S.bank, added: {} }; save(); stats(); setMode(mode);
+  S = { log: {}, wrong: [], known: [], theme: S.theme, mock: null, hist: [], day: {}, goal: S.goal || 0, bank: S.bank, added: {}, bm: { q: [], c: [] } }; save(); stats(); setMode(mode);
 };
 applyTheme(); stats();
 let start = "quiz"; try { start = localStorage.getItem("sqld.mode") || "quiz"; } catch (e) {}
