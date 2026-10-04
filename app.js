@@ -130,12 +130,19 @@ function dayStreak() {
   return n;
 }
 function toast(m) { const t = document.createElement("div"); t.className = "toast"; t.textContent = m; document.body.appendChild(t); setTimeout(() => t.remove(), 2600); }
-// 이 기능이 생기기 전에 오늘 푼 문제: 문항별 기록의 풀이 시각으로 되살린다 (한 번만)
+// 이 기능이 생기기 전에 푼 문제 되살리기 (한 번만 실행)
+// 사이트는 2026-10-04에 처음 열렸으므로, 풀이 시각이 없는 옛 기록과 오늘 시각의 기록은 모두 오늘 푼 것이다.
+// 문항 수가 아니라 푼 횟수(n)를 센다. 이미 센 수보다 많을 때만 올리고, 직접 추가(m)는 그대로 둔다.
 (function () {
-  const k = dkey(); if (S.day[k]) return;
-  let n = 0, ok = 0;
-  for (const L of Object.values(S.log)) if (L && L.t && dkey(L.t) === k) { n++; if (L.last === 1 || L.guess) ok++; }
-  if (n) { S.day[k] = { n, ok, back: n }; save(); }
+  if (S.dayFix) return;
+  const k = "2026-10-04"; // 사이트를 연 날. 다음 날 처음 열어도 그날 기록으로 남아 '어제 N문제'가 맞게 나온다
+  {
+    let n = 0, ok = 0;
+    for (const L of Object.values(S.log)) if (L && (!L.t || dkey(L.t) === k)) { n += L.n | 0; ok += L.ok | 0; }
+    const r = S.day[k] || { n: 0, ok: 0 }, m = r.m | 0;
+    if (n > r.n - m) { r.n = n + m; r.ok = Math.max(r.ok, ok); S.day[k] = r; }
+  }
+  S.dayFix = 1; save();
 })();
 let dayOpen = false, dayAddOpen = false;
 function dayManual(n, ok) { // 직접 추가: 종이·책으로 푼 문제. 음수면 뺀다
@@ -169,12 +176,10 @@ function dayRender() {
 }
 
 function stats() {
-  const ids = Object.keys(S.log).filter(id => byId[id]);
-  const n = ids.reduce((a, id) => a + S.log[id].n, 0), ok = ids.reduce((a, id) => a + S.log[id].ok, 0);
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const d = Math.round((new Date("2026-11-14T00:00:00") - today) / 864e5);
   document.getElementById("examline").innerHTML = `63회 시험 <b>11월 14일(토) 10:00</b> <span class="dd">${d > 0 ? "D-" + d : d === 0 ? "D-DAY" : "종료"}</span> · 원서접수 10월 12~16일`;
-  document.getElementById("statline").innerHTML = `<span>전체 <b>${QB.length}</b>문항</span><span>푼 문제 <b>${ids.length}</b></span>${n ? `<span>누적 정답률 <b>${Math.round(ok / n * 100)}%</b></span>` : ""}<span>외운 카드 <b>${CARDS.filter(x => S.known.includes(x.tp + ":" + x.f)).length}</b></span><span>오답노트 <b>${S.wrong.length}</b></span>`;
+  document.getElementById("statline").innerHTML = `<span>전체 <b>${QB.length}</b>문항</span><span>외운 카드 <b>${CARDS.filter(x => S.known.includes(x.tp + ":" + x.f)).length}</b></span><span>오답노트 <b>${S.wrong.length}</b></span>`;
   dayRender();
 }
 
