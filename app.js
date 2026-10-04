@@ -365,7 +365,19 @@ function trendView() {
     const d = TREND.data[k] || [], sum = d.reduce((a, b) => a + b, 0);
     return `<tr><td class="t">${esc(TOPICS[k].n)}</td>${d.map(v => `<td class="c" style="${shade(v)}">${v || ""}</td>`).join("")}<td class="sum">${sum}</td></tr>`;
   }).join("");
-  view.innerHTML = `<section class="panel frame"><div class="label">06 · 출제분석</div><h2>55~61회 주제별 출제 지도</h2>
+  const O = window.OFFICIAL, fmt = n => n.toLocaleString("ko-KR");
+  const [p24, p25] = O.passers.map(r => r[1]), [t24, t25] = O.takers.rows.map(r => r[1]);
+  view.innerHTML = `<section class="panel frame"><div class="label">06 · 출제분석 · 공식 통계</div><h2>시행 기관 공식 자료</h2>
+    <p class="muted small">출처: <a href="${O.url}" target="_blank" rel="noopener">${esc(O.src)}</a></p>
+    <div class="score"><div><span>1과목 배점</span><b>${O.subjects[0][1]}<small>점</small></b></div><div><span>2과목 배점</span><b>${O.subjects[1][1]}<small>점</small></b></div><div><span>합격 (과락 ${O.cut}%)</span><b>${O.pass}<small>점</small></b></div></div>
+    <div class="scroll"><table><thead><tr><th>연도</th><th>합격자<br>(공식)</th><th>응시자<br>(보도)</th><th>합격률</th></tr></thead><tbody>
+      <tr><td class="num">2024</td><td class="num">${fmt(p24)}</td><td class="num">${fmt(t24)}</td><td class="num">${(p24 / t24 * 100).toFixed(2)}%</td></tr>
+      <tr><td class="num">2025</td><td class="num">${fmt(p25)}</td><td class="num">${fmt(t25)}</td><td class="num">${(p25 / t25 * 100).toFixed(2)}%</td></tr>
+    </tbody></table></div>
+    <p class="why">2025년 응시자는 늘었는데(+${fmt(t25 - t24)}명) 합격자는 ${fmt(p24 - p25)}명(${((p25 - p24) / p24 * 100).toFixed(1)}%) 줄어 합격률이 약 15%p 떨어졌다. 하락 원인(난이도·응시자 구성)은 공개되지 않았지만, 61회가 '쉬웠다'는 평가만 믿고 방심할 상황은 아니다. 앱의 모의고사도 공식 배점(20 + 80)과 기준(60점, 과목별 40% 과락)을 그대로 따른다.</p>
+    <p class="muted small">응시자 수는 공식 파일에 없어 <a href="${O.takers.url}" target="_blank" rel="noopener">${esc(O.takers.src)}</a> 수치를 썼다. 같은 보도의 합격자 수가 공식 파일과 정확히 일치한다.</p>
+  </section>
+  <section class="panel frame"><div class="label">참고 자료 · 복원 기출 기반</div><h2>55~61회 주제별 출제 지도</h2>
     <p class="muted small">${esc(TREND.src)} 칸이 진할수록 많이 나왔다.</p>
     <div class="scroll heat"><table><thead><tr><th>주제</th>${R.map(r => `<th>${r}회</th>`).join("")}<th>합</th></tr></thead><tbody>
       <tr class="sep"><td colspan="${R.length + 2}">제1과목 · 데이터 모델링의 이해 (10문항)</td></tr>${rowsFor(1)}

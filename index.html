@@ -246,7 +246,8 @@ pre.inline{margin:0;font-family:var(--mono);font-size:13px;background:var(--code
 .score b{font-family:var(--mono);font-size:26px;line-height:1.1}
 .score b small{font-size:13px;color:var(--muted)}
 .pass{font-size:22px;font-weight:700}
-.pass.ok{color:var(--ok)}.pass.ng{color:var(--acc)}
+.pass.ok{color:var(--ok)}
+.panel a{color:var(--blue)}.pass.ng{color:var(--acc)}
 .bars{display:flex;flex-direction:column;gap:6px}
 .bar{display:grid;grid-template-columns:120px 1fr 52px;gap:8px;align-items:center;font-size:13px}
 .bar .tr{height:10px;background:var(--line2);position:relative}
@@ -286,7 +287,7 @@ footer a{color:inherit}
   <main id="view"></main>
 
   <footer>
-    <p>출제 추이는 수험생이 공개한 55~61회 복원 문항을 키워드로 분류한 근사치이며, 한국데이터산업진흥원의 공식 자료가 아니다. 문항은 모두 새로 만들었고, 계산형 문항은 PostgreSQL에서 실행해 정답을 대조했다(Oracle 고유 동작은 해설에 근거를 밝힘). 학습 기록은 이 기기의 브라우저에만 저장된다.</p>
+    <p>배점·합격 기준·합격자 수는 한국데이터산업진흥원 공공데이터(2026-08-21)를 따른다. 시행 기관은 문항·주제별 통계를 공개하지 않으므로, 주제별 출제 추이는 수험생이 공개한 55~61회 복원 문항을 분류한 참고 자료다. 문항은 모두 새로 만들었고, 계산형 문항은 PostgreSQL에서 실행해 정답을 대조했다(Oracle 고유 동작은 해설에 근거를 밝힘). 학습 기록은 이 기기의 브라우저에만 저장된다.</p>
     <p class="row"><button class="btn sm" id="theme-btn" type="button">화면 테마 전환</button><button class="btn sm" id="reset-btn" type="button">학습 기록 초기화</button></p>
   </footer>
 </div>
