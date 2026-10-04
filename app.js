@@ -96,6 +96,7 @@ const lvTag = lv => `<span class="tag lv">난이도 ${"●".repeat(lv)}${"○".r
 // ── 통계
 function record(q, pick) {
   const ok = pick === q.a, L = S.log[q.id] || { n: 0, ok: 0 }, now = Date.now();
+  delete L.guess; delete L.guessPrev;
   L.n++; if (ok) L.ok++; L.last = ok ? 1 : 0; L.t = now;
   // 간격 반복: 틀리면 내일 다시, 맞히면 3 → 7 → 14 → 30일 (처음부터 맞히면 3일)
   if (ok) { L.streak = (L.streak || 0) + 1; const days = L.n === 1 ? 3 : [1, 3, 7, 14, 30][Math.min(L.streak - 1, 4)]; L.due = now + days * DAY; }
@@ -161,6 +162,26 @@ function bindConceptLinks(root) {
 }
 
 // ── 문제풀이 / 오답노트
+// ── 찍어서 맞힌 문제: 맞았어도 아는 게 아니므로 오답노트로 보낸다 (다시 누르면 취소)
+function markGuess(id, on) {
+  const L = S.log[id]; if (!L) return;
+  if (on && !L.guess) {
+    L.guessPrev = { last: L.last, streak: L.streak, due: L.due, inWrong: S.wrong.includes(id) };
+    L.guess = 1; L.last = 0; L.streak = 0; L.due = Date.now() + DAY;
+    if (!S.wrong.includes(id)) S.wrong.push(id);
+  } else if (!on && L.guess) {
+    const p = L.guessPrev || {};
+    L.last = p.last; L.streak = p.streak; L.due = p.due;
+    if (!p.inWrong) S.wrong = S.wrong.filter(x => x !== id);
+    delete L.guess; delete L.guessPrev;
+  }
+  save();
+}
+const guessBtn = id => { const on = !!(S.log[id] && S.log[id].guess); return `<button class="guess" data-guess="${id}" aria-pressed="${on}">${on ? "✓ 오답노트에 넣었어요 · 누르면 취소" : "🤔 찍어서 맞았어요 → 오답노트에 넣기"}</button>`; };
+function bindGuess(root, after) {
+  (root || view).querySelectorAll("[data-guess]").forEach(b => b.onclick = () => { const id = b.dataset.guess; markGuess(id, !(S.log[id] && S.log[id].guess)); after ? after() : b.outerHTML = guessBtn(id); bindGuess(root, after); });
+}
+
 // ── 추천: 내 기록을 보고 다음 문제를 고른다 (무작위 아님)
 const dueOf = L => L.due != null ? L.due : (L.last === 0 ? 0 : (L.t || 0) + 3 * DAY);
 const ago = t => { if (!t) return ""; const d = Math.floor((Date.now() - t) / DAY); return d <= 0 ? "오늘" : d + "일 전"; };
@@ -176,7 +197,7 @@ function reasonFor(q, st, now) {
   if (L) {
     const due = dueOf(L), when = L.t ? ` · 마지막 풀이 ${ago(L.t)}` : "";
     if (L.last === 0) return due <= now
-      ? { k: "wrong", t: `오답 복습 — 지난번에 틀린 문제 (${L.n}번 중 ${L.ok}번 정답)${when}`, p: 3 + (now - due) / DAY / 100 }
+      ? { k: "wrong", t: L.guess ? `오답 복습 — 찍어서 맞혔다고 표시한 문제${when}` : `오답 복습 — 지난번에 틀린 문제 (${L.n}번 중 ${L.ok}번 정답)${when}`, p: 3 + (now - due) / DAY / 100 }
       : { k: "ahead", t: `오답 복습(예정보다 일찍) — 내일 다시 나올 문제${when}`, p: -1 };
     if (due <= now) return { k: "review", t: `간격 복습 — 맞혔던 문제를 ${Math.max(1, Math.round((now - (L.t || now)) / DAY))}일 만에 다시 (연속 ${L.streak || 1}번 정답)`, p: 2 };
     return { k: "ahead", t: `미리 복습 — 원래 ${Math.max(1, Math.ceil((due - now) / DAY))}일 뒤에 다시 나올 문제`, p: -2 + (L.ok / L.n) * -1 };
@@ -217,7 +238,7 @@ function buildList() {
   else if (quiz.wrongMode) L.sort((a, b) => (S.log[a.id] ? S.log[a.id].ok / S.log[a.id].n : 0) - (S.log[b.id] ? S.log[b.id].ok / S.log[b.id].n : 0) || dueOf(S.log[a.id] || {}) - dueOf(S.log[b.id] || {}));
   else { const o = SUBS.map(x => x.n); L.sort((a, b) => a.s - b.s || o.indexOf(subOf(a)) - o.indexOf(subOf(b)) || a.id.localeCompare(b.id, "en", { numeric: true })); }
   const st = subStats(), now = Date.now();
-  L.forEach(q => { quiz.why[q.id] = quiz.wrongMode ? { k: "wrong", t: `오답노트 — ${S.log[q.id] ? `${S.log[q.id].n}번 중 ${S.log[q.id].ok}번 정답 · 마지막 풀이 ${ago(S.log[q.id].t) || "기록 없음"}` : "틀린 문제"}` } : reasonFor(q, st, now); });
+  L.forEach(q => { quiz.why[q.id] = quiz.wrongMode ? { k: "wrong", t: `오답노트 — ${S.log[q.id] && S.log[q.id].guess ? "찍어서 맞힌 문제 · " : ""}${S.log[q.id] ? `${S.log[q.id].n}번 중 ${S.log[q.id].ok}번 정답 · 마지막 풀이 ${ago(S.log[q.id].t) || "기록 없음"}` : "틀린 문제"}` } : reasonFor(q, st, now); });
   quiz.list = L.map(q => q.id); quiz.i = 0; quiz.pick = null;
 }
 function quizView(wrongMode) {
@@ -276,12 +297,14 @@ function renderQuiz() {
       const cls = quiz.pick == null ? "" : i === q.a ? "right" : i === quiz.pick ? "wrong" : "";
       return `<button class="opt ${cls}" data-i="${i}" ${quiz.pick != null ? "disabled" : ""}><span class="no">${i + 1}</span><span>${esc(t)}</span></button>`;
     }).join("")}</div>
+    ${quiz.pick != null && quiz.pick === q.a ? guessBtn(id) : ""}
     ${quiz.pick != null ? expHtml(q, quiz.pick, seen) : ""}
     <div class="navrow"><button class="btn" data-nav="-1" ${quiz.i ? "" : "disabled"}>← 이전</button><button class="btn primary" data-nav="1" ${quiz.i < quiz.list.length - 1 ? "" : "disabled"}>다음 문제 →</button></div>
   </section>`;
   view.innerHTML = html; bindQuizFilters(); bindConceptLinks();
   view.querySelectorAll(".opt").forEach(b => b.onclick = () => choose(+b.dataset.i));
   view.querySelectorAll("[data-nav]").forEach(b => b.onclick = () => go(+b.dataset.nav));
+  bindGuess(view);
 }
 function choose(i) {
   if (quiz.pick != null) return;
@@ -423,13 +446,16 @@ function mockPaper() {
     <div class="spread"><span class="eyebrow">${setName(M.set)} · ${M.i < 10 ? "제1과목" : "제2과목"}</span><span class="small muted">답안 ${answered} / ${M.ids.length}</span></div>
     ${body}
     <div class="opts">${q.o.map((t, i) => `<button class="opt ${M.ans[id] === i ? "sel" : ""}" data-i="${i}"><span class="no">${i + 1}</span><span>${esc(t)}</span></button>`).join("")}</div>
+    <button class="guess" id="mark-guess" aria-pressed="${!!(M.guess && M.guess[id])}">${M.guess && M.guess[id] ? "✓ 찍음 표시함 · 맞혀도 오답노트로 (누르면 취소)" : "🤔 찍음 표시 — 확실하지 않으면 눌러 두기"}</button>
     <div class="navrow"><button class="btn" data-nav="-1" ${M.i ? "" : "disabled"}>← 이전</button><button class="btn primary" data-nav="1" ${M.i < M.ids.length - 1 ? "" : "disabled"}>다음 →</button></div>
   </section>
   <section class="panel"><h3>답안지 (OMR)</h3>
-    <div class="omr">${M.ids.map((x, i) => `<button class="${M.ans[x] != null ? "done" : ""} ${i === M.i ? "cur" : ""}" data-j="${i}" aria-label="${i + 1}번">${i + 1}</button>`).join("")}</div>
+    <div class="omr">${M.ids.map((x, i) => `<button class="${M.ans[x] != null ? "done" : ""} ${i === M.i ? "cur" : ""} ${M.guess && M.guess[x] ? "g" : ""}" data-j="${i}" aria-label="${i + 1}번">${i + 1}</button>`).join("")}</div>
+    ${M.guess && Object.keys(M.guess).length ? `<p class="small muted">점선 테두리 = 찍음 표시한 문항 (${Object.keys(M.guess).length}개)</p>` : ""}
     <div class="row"><button class="btn acc grow" id="mock-quit">시험 포기</button><button class="btn primary grow" id="mock-submit">답안 제출</button></div>
   </section>`;
   view.querySelectorAll(".opt").forEach(b => b.onclick = () => { M.ans[id] = +b.dataset.i; if (M.i < M.ids.length - 1) M.i++; save(); mockPaper(); top(); });
+  document.getElementById("mark-guess").onclick = () => { M.guess = M.guess || {}; if (M.guess[id]) delete M.guess[id]; else M.guess[id] = 1; save(); mockPaper(); };
   view.querySelectorAll("[data-nav]").forEach(b => b.onclick = () => { M.i += +b.dataset.nav; save(); mockPaper(); top(); });
   view.querySelectorAll("[data-j]").forEach(b => b.onclick = () => { M.i = +b.dataset.j; save(); mockPaper(); top(); });
   document.getElementById("mock-submit").onclick = () => { const left = M.ids.length - Object.keys(M.ans).length; if (!left || confirm(`${left}문항을 풀지 않았다. 그래도 제출할까?`)) submitMock(); };
@@ -450,7 +476,9 @@ function submitMock() {
   clearInterval(tick); document.getElementById("exambar").hidden = true;
   const M = S.mock;
   let a = 0, b = 0;
-  M.ids.forEach(id => { const q = byId[id], pick = M.ans[id]; if (pick == null) return; const ok = record(q, pick); if (ok) q.s === 1 ? a++ : b++; });
+  let g = 0;
+  M.ids.forEach(id => { const q = byId[id], pick = M.ans[id]; if (pick == null) return; const ok = record(q, pick); if (ok) { q.s === 1 ? a++ : b++; if (M.guess && M.guess[id]) { markGuess(id, true); g++; } } });
+  M.guessed = g;
   const sc = (a + b) * 2, p = sc >= 60 && a >= 4 && b >= 16;
   M.done = true; M.res = { a, b, sc, p, sec: Math.round((Date.now() - M.t0) / 1000) };
   S.hist.push({ d: new Date().toISOString().slice(0, 10), set: M.set || 0, sc, a, b, p }); save(); mockResult(); window.scrollTo(0, 0);
@@ -462,10 +490,10 @@ function mockResult() {
   view.innerHTML = `<section class="panel frame"><div class="eyebrow">05 · ${setName(M.set)} 결과</div>
     <div class="pass ${R.p ? "ok" : "ng"}">${R.p ? "합격선 통과" : R.sc >= 60 ? "과락으로 불합격" : "불합격"}</div>
     <div class="kpis"><div><span>총점</span><b>${R.sc}<small> / 100</small></b></div><div><span>1과목 (과락 4개 미만)</span><b>${R.a}<small> / 10</small></b></div><div><span>2과목 (과락 16개 미만)</span><b>${R.b}<small> / 40</small></b></div></div>
-    <p class="small muted">소요 시간 ${Math.floor(R.sec / 60)}분 ${R.sec % 60}초 · 틀린 문제는 오답노트에 자동으로 저장됐다.</p>
+    <p class="small muted">소요 시간 ${Math.floor(R.sec / 60)}분 ${R.sec % 60}초 · 틀린 문제${M.guessed ? `와 찍어서 맞힌 문제 ${M.guessed}개` : ""}는 오답노트에 자동으로 저장됐다. 해설에서 '찍어서 맞았어요'를 눌러 더 넣을 수도 있다.</p>
     <div class="sec"><div class="sec-h">세부항목별 정답 (낮은 순)</div><div class="bars">${rows.map(([k, t]) => `<div class="bar"><span>${esc(k)}</span><span class="tr"><i class="${t.ok / t.n < .6 ? "low" : ""}" style="width:${t.ok / t.n * 100}%"></i></span><b>${t.ok}/${t.n}</b></div>`).join("")}</div></div>
     <div class="sec"><div class="sec-h">문항별 채점 — 번호를 누르면 해설</div>
-    <div class="omr">${M.ids.map((x, i) => `<button class="${M.ans[x] === byId[x].a ? "r" : "w"}" data-rv="${i}" aria-label="${i + 1}번 해설">${i + 1}</button>`).join("")}</div></div>
+    <div class="omr">${M.ids.map((x, i) => `<button class="${M.ans[x] === byId[x].a ? "r" : "w"} ${M.guess && M.guess[x] ? "g" : ""}" data-rv="${i}" aria-label="${i + 1}번 해설">${i + 1}</button>`).join("")}</div></div>
     <div class="row"><button class="btn primary grow" id="mock-again">다른 회차 풀기</button><button class="btn grow" id="mock-wrong">오답노트로</button></div>
   </section><div id="review"></div>`;
   const rv = i => {
@@ -473,8 +501,8 @@ function mockResult() {
     const box = document.getElementById("review");
     box.innerHTML = `<section class="panel frame" id="qcard">${body}
       <div class="opts">${q.o.map((t, j) => `<button class="opt ${j === q.a ? "right" : j === pick ? "wrong" : ""}" disabled><span class="no">${j + 1}</span><span>${esc(t)}</span></button>`).join("")}</div>
-      ${pick == null ? `<p class="small muted">답을 표시하지 않은 문항</p>` : ""}${expHtml(q, pick == null ? null : pick, seen)}</section>`;
-    bindConceptLinks(box); top();
+      ${pick == null ? `<p class="small muted">답을 표시하지 않은 문항</p>` : ""}${pick === q.a ? guessBtn(id) : ""}${expHtml(q, pick == null ? null : pick, seen)}</section>`;
+    bindConceptLinks(box); bindGuess(box); top();
   };
   view.querySelectorAll("[data-rv]").forEach(b => b.onclick = () => rv(+b.dataset.rv));
   document.getElementById("mock-again").onclick = () => { S.mock = null; save(); mockView(); };
