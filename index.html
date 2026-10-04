@@ -56,22 +56,12 @@ button:focus-visible,a:focus-visible,select:focus-visible,summary:focus-visible{
 p{margin:0}
 b,strong{font-weight:700}
 
-/* 표제란 헤더 */
-.titleblock{background:var(--panel);border:1.5px solid var(--ink);display:grid;grid-template-columns:1fr auto}
-.tb-main{padding:16px 18px;border-right:1.5px solid var(--ink);min-width:0}
+/* 표제란 헤더: 시험 일정 → 통계 한 줄 → 오늘 목표, 겹치는 정보 없이 한 덩어리 */
+.titleblock{background:var(--panel);border:1.5px solid var(--ink);padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.tb-top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
 .tb-dwg{font-family:var(--mono);font-size:11.5px;letter-spacing:.1em;color:var(--blue)}
-h1{margin:4px 0 4px;font-size:clamp(28px,6.4vw,38px);line-height:1.15;font-weight:700;letter-spacing:-.01em}
+h1{margin:0;font-size:clamp(28px,6.4vw,38px);line-height:1.15;font-weight:700;letter-spacing:-.01em}
 h1 b{color:var(--acc)}
-.tb-sub{color:var(--muted);font-size:15px;line-height:1.6}
-.tb-side{display:grid;grid-template-rows:repeat(3,1fr);min-width:124px}
-.tb-cell{padding:7px 12px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;justify-content:center;line-height:1.35}
-.tb-cell:last-child{border-bottom:0}
-.tb-cell span{font-size:11.5px;color:var(--muted)}
-.tb-cell b{font-family:var(--mono);font-size:16px;font-variant-numeric:tabular-nums}
-.tb-cell b.acc{color:var(--acc)}
-@media (max-width:540px){.titleblock{grid-template-columns:1fr}.tb-main{border-right:0;border-bottom:1.5px solid var(--ink)}
-  .tb-side{grid-template-rows:none;grid-template-columns:repeat(3,1fr)}.tb-cell{border-bottom:0;border-right:1px solid var(--line)}.tb-cell:last-child{border-right:0}}
-
 /* 탭: 계기판 버튼 */
 .tabs{display:grid;grid-template-columns:repeat(6,1fr);border:1.5px solid var(--ink);background:var(--panel);position:sticky;top:0;z-index:4}
 @media (max-width:640px){.tabs{grid-template-columns:repeat(3,1fr);position:static}.tabs button:nth-child(3){border-right:0}.tabs button:nth-child(-n+3){border-bottom:1px solid var(--line)}}
@@ -122,6 +112,21 @@ h3{margin:0;font-size:18px;line-height:1.45}
 .guess{align-self:flex-start;background:var(--panel);border:1.5px dashed var(--acc);color:var(--acc);font-weight:700;font-size:15px;padding:9px 14px;min-height:44px;cursor:pointer;line-height:1.4;text-align:left}
 .guess[aria-pressed="true"]{border-style:solid;background:var(--acc-soft)}
 .omr button.g{border:2px dashed var(--acc)}
+.exam-line{font-size:15.5px;color:var(--muted);line-height:1.6}.exam-line b{color:var(--ink)}.exam-line .dd{font-family:var(--mono);font-weight:700;color:var(--acc)}
+.statline{display:flex;gap:6px 16px;flex-wrap:wrap;font-size:14.5px;color:var(--muted);line-height:1.5}.statline b{font-family:var(--mono);color:var(--ink)}
+.daygoal{margin-top:4px;border:1.5px solid var(--ink);padding:12px 14px;display:flex;flex-direction:column;gap:8px;background:var(--panel)}
+.dg-top{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;line-height:1.4}
+.dg-top>b{font-size:22px}.dg-top>span{font-size:15px}
+.dg-s{font-size:13.5px!important;color:var(--muted)}
+.dg-btns{margin-left:auto;display:flex;gap:6px}
+.dg-bar{height:10px;background:var(--line2);position:relative}.dg-bar i{position:absolute;inset:0 auto 0 0;background:var(--ok);transition:width .3s}
+.dg-msg{font-size:15px;line-height:1.6}
+.dg-pick{border-top:1px dashed var(--line);padding-top:10px;display:flex;flex-direction:column;gap:8px}
+.dg-in{display:flex;flex-direction:column;font-size:13px;color:var(--muted);gap:3px}
+.dg-in input{font:inherit;font-size:16px;width:120px;padding:8px 10px;border:1.5px solid var(--line);background:var(--panel);color:var(--ink)}
+.chip{background:var(--panel);border:1.5px solid var(--line);padding:6px 12px;min-height:38px;font-size:14px;font-weight:700;cursor:pointer}
+.chip[aria-pressed="true"]{border-color:var(--ink);background:var(--ink);color:var(--panel)}
+.toast{position:fixed;left:50%;top:18px;transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:12px 18px;font-weight:700;z-index:100;box-shadow:0 6px 20px rgba(0,0,0,.25)}
 .qtop{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;line-height:1.3}
 .qtop-r{display:flex;align-items:center;gap:8px;margin-left:auto}
 .cnt{font-family:var(--mono);font-size:13px;color:var(--muted);white-space:nowrap}
@@ -303,16 +308,11 @@ footer{font-size:13.5px;color:var(--muted);line-height:1.8;display:flex;flex-dir
 <body>
 <div class="wrap">
   <header class="titleblock">
-    <div class="tb-main">
-      <div class="tb-dwg">DWG NO. SQLD · REV 2 · 공식 출제기준 반영</div>
-      <h1>SQLD <b>공학노트</b></h1>
-      <p class="tb-sub">출제기준 세부항목별 문제은행 · 고오답 유형 집중 · 실전 모의고사</p>
-    </div>
-    <div class="tb-side">
-      <div class="tb-cell"><span>푼 문제</span><b id="st-solved">0/0</b></div>
-      <div class="tb-cell"><span>정답률</span><b id="st-acc">—</b></div>
-      <div class="tb-cell"><span id="st-dday-l">다음 시험</span><b id="st-dday" class="acc">—</b></div>
-    </div>
+    <div class="tb-top"><span class="tb-dwg">DWG · SQL 개발자(SQLD) 필기 대비</span><span id="acct-slot"></span></div>
+    <h1>SQLD <b>공학노트</b></h1>
+    <p class="exam-line" id="examline">시험 <b>11월 14일(토) 10:00</b> · 원서접수 10월 12~16일</p>
+    <p class="statline" id="statline"></p>
+    <div class="daygoal" id="daygoal"></div>
   </header>
 
   <nav class="tabs" aria-label="학습 메뉴">

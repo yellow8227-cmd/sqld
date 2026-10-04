@@ -22,7 +22,7 @@ async function api(fn, args) {
 const local = () => { try { return JSON.parse(lsGet(KEY) || "{}"); } catch (e) { return {}; } };
 const hasProgress = d => !!(d && (Object.keys(d.log || {}).length || (d.known || []).length || (d.hist || []).length));
 // 저장할 때 진행 중 모의고사·화면 테마는 기기마다 따로 둔다
-const pack = d => JSON.stringify({ log: d.log || {}, wrong: d.wrong || [], known: d.known || [], hist: d.hist || [] });
+const pack = d => JSON.stringify({ log: d.log || {}, wrong: d.wrong || [], known: d.known || [], hist: d.hist || [], day: d.day || {}, goal: d.goal || 0 });
 
 // 두 기록 합치기 — 어느 쪽도 버리지 않는다: 문항 기록은 더 많이 푼 쪽, 목록은 합집합
 function merge(a, b) {
@@ -31,7 +31,9 @@ function merge(a, b) {
   const uni = (x, y) => [...new Set([...(x || []), ...(y || [])])];
   const hk = r => JSON.stringify(r), seen = new Set(), hist = [];
   for (const r of [...(b.hist || []), ...(a.hist || [])]) if (!seen.has(hk(r))) { seen.add(hk(r)); hist.push(r); }
-  return { log, wrong: uni(a.wrong, b.wrong), known: uni(a.known, b.known), hist: hist.sort((x, y) => String(x.d).localeCompare(String(y.d))) };
+  const day = Object.assign({}, b.day); // 날짜별 푼 수: 더 많이 센 쪽
+  for (const [k, v] of Object.entries(a.day || {})) if (!day[k] || (v.n || 0) > (day[k].n || 0)) day[k] = v;
+  return { log, wrong: uni(a.wrong, b.wrong), known: uni(a.known, b.known), hist: hist.sort((x, y) => String(x.d).localeCompare(String(y.d))), day, goal: a.goal || b.goal || 0 };
 }
 function apply(d) { // 기기 고유 값(테마·진행 중 시험)은 유지하고 학습 기록만 바꾼다
   const cur = local();
@@ -69,7 +71,7 @@ document.addEventListener("visibilitychange", () => { if (!user || !ready) retur
 // ── 화면
 const css = document.createElement("style");
 css.textContent = `
-#acct{margin-top:10px;font:inherit;font-size:14.5px;font-weight:700;padding:8px 14px;min-height:42px;border:1.5px solid var(--ink);background:var(--panel);color:var(--ink);cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}
+#acct{font:inherit;font-size:14px;font-weight:700;padding:8px 14px;min-height:42px;border:1.5px solid var(--ink);background:var(--panel);color:var(--ink);cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}
 #acct.on{background:var(--ink);color:var(--panel)}
 #acctdlg{position:fixed;inset:0;background:rgba(5,12,20,.55);display:flex;align-items:center;justify-content:center;z-index:99;padding:16px}
 #acctdlg .box{background:var(--panel);color:var(--ink);border:1.5px solid var(--ink);padding:22px 20px;width:100%;max-width:400px;max-height:90vh;overflow:auto;line-height:1.7}
@@ -91,8 +93,8 @@ css.textContent = `
 document.head.appendChild(css);
 const btn = document.createElement("button");
 btn.id = "acct"; btn.type = "button";
-(document.querySelector(".tb-main") || document.body).appendChild(btn);
-function paint(st) { btn.classList.toggle("on", !!user); btn.textContent = user ? `👤 ${user.id} · ${st || "자동 저장 중"}` : "🔑 로그인하고 폰·노트북에서 이어 풀기"; }
+(document.getElementById("acct-slot") || document.querySelector(".titleblock") || document.body).appendChild(btn);
+function paint(st) { btn.classList.toggle("on", !!user); btn.textContent = user ? `👤 ${user.id} · ${st || "자동 저장"}` : "🔑 로그인 · 기기 간 이어 풀기"; }
 paint();
 btn.onclick = () => user ? account() : login();
 function dlg(html) {

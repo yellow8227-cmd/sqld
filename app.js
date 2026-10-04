@@ -8,7 +8,6 @@ const subOf = q => q.sub || QSUB[q.id] || "";
 const isKill = q => !!q.kill || QKILL.has(q.id);
 const SUBS = SYL.flatMap(x => x.items.flatMap(i => i.subs.map(n => ({ s: x.s, item: i.n, n }))));
 const view = document.getElementById("view");
-const EXAMS = [{ n: 62, d: "2026-08-22" }, { n: 63, d: "2026-11-14" }];
 
 // ── 저장소 (실패해도 앱은 동작)
 const KEY = "sqld.v1";
@@ -104,28 +103,85 @@ function record(q, pick) {
   S.log[q.id] = L;
   if (!ok && !S.wrong.includes(q.id)) S.wrong.push(q.id);
   if (ok && L.streak >= 2) S.wrong = S.wrong.filter(x => x !== q.id); // 연속 두 번 맞히면 오답노트 졸업
+  dayAdd(1, ok ? 1 : 0);
   save(); stats();
   return ok;
 }
+// ── 오늘 푼 문제 · 하루 목표 (상식 앱과 같은 방식)
+const NEXT_EXAM = "2026-11-14T10:00:00+09:00";
+const dkey = t => { const d = t ? new Date(t) : new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
+S.day = S.day || {};
+function goalRec() {
+  const left = Math.max(1, Math.ceil((new Date(NEXT_EXAM) - Date.now()) / DAY));
+  const unseen = QB.filter(q => !S.log[q.id]).length;
+  return { left, unseen, rec: Math.min(100, Math.max(10, Math.ceil(unseen / left / 5) * 5)) };
+}
+const curGoal = () => S.goal > 0 ? S.goal : 30;
+function dayAdd(n, ok) {
+  const k = dkey(), r = S.day[k] || (S.day[k] = { n: 0, ok: 0 }), g = curGoal(), before = r.n;
+  r.n += n; r.ok += ok;
+  if (before < g && r.n >= g) setTimeout(() => toast(`🎉 오늘 목표 ${g}문제 달성!`), 50);
+}
+function dayStreak() {
+  const g = curGoal(); let n = 0, t = Date.now();
+  if (!((S.day[dkey(t)] || {}).n >= g)) t -= DAY;
+  while ((S.day[dkey(t)] || {}).n >= g) { n++; t -= DAY; }
+  return n;
+}
+function toast(m) { const t = document.createElement("div"); t.className = "toast"; t.textContent = m; document.body.appendChild(t); setTimeout(() => t.remove(), 2600); }
+// 이 기능이 생기기 전에 오늘 푼 문제: 문항별 기록의 풀이 시각으로 되살린다 (한 번만)
+(function () {
+  const k = dkey(); if (S.day[k]) return;
+  let n = 0, ok = 0;
+  for (const L of Object.values(S.log)) if (L && L.t && dkey(L.t) === k) { n++; if (L.last === 1 || L.guess) ok++; }
+  if (n) { S.day[k] = { n, ok, back: n }; save(); }
+})();
+let dayOpen = false, dayAddOpen = false;
+function dayManual(n, ok) { // 직접 추가: 종이·책으로 푼 문제. 음수면 뺀다
+  const k = dkey(), r = S.day[k] || (S.day[k] = { n: 0, ok: 0 });
+  n = Math.max(-r.n, n | 0);
+  const unk = ok < 0; ok = Math.max(0, Math.min(Math.abs(n), ok | 0));
+  if (unk && n > 0) r.u = (r.u | 0) + n;
+  const g = curGoal(), before = r.n;
+  r.n += n; r.m = (r.m | 0) + n;
+  if (n > 0) r.ok += ok; else { r.ok = Math.min(r.ok, r.n); r.u = Math.min(r.u | 0, r.n); }
+  save();
+  if (before < g && r.n >= g) toast(`🎉 오늘 목표 ${g}문제 달성!`);
+}
+function dayRender() {
+  const el = document.getElementById("daygoal"); if (!el) return;
+  const r = S.day[dkey()] || { n: 0, ok: 0 }, G = goalRec(), g = curGoal(), pct = Math.min(100, Math.round(r.n / g * 100));
+  const y = S.day[dkey(Date.now() - DAY)], st = dayStreak(), graded = r.n - (r.u | 0);
+  el.innerHTML = `<div class="dg-top"><b>오늘 ${r.n}</b><span>/ 목표 ${g}문제</span>${graded > 0 ? `<span class="dg-s">정답률 ${Math.round(r.ok / graded * 100)}%</span>` : ""}${st ? `<span class="dg-s">🔥 ${st}일 연속 달성</span>` : ""}
+      <span class="dg-btns"><button class="btn sm" id="dgadd">＋ 직접 추가</button><button class="btn sm" id="dgset">${dayOpen ? "닫기" : "목표 바꾸기"}</button></span></div>
+    <div class="dg-bar"><i style="width:${pct}%"></i></div>
+    <div class="dg-msg">${r.n >= g ? "🎉 오늘 목표 달성! 더 풀면 실력이 더 붙어요." : `목표까지 <b>${g - r.n}문제</b> 남았어요.`}${y ? ` · 어제 ${y.n}문제` : ""}</div>
+    ${dayAddOpen ? `<div class="dg-pick"><p class="small muted">기록이 안 된 문제(종이·책으로 푼 것)를 직접 더해요. 잘못 넣었으면 앞에 -를 붙여 빼세요.</p>
+      <div class="row"><label class="dg-in">푼 문제 <input id="dgn" type="number" inputmode="numeric" placeholder="예: 20"></label><label class="dg-in">그중 맞힌 수 <input id="dgok" type="number" inputmode="numeric" placeholder="몰라도 됨"></label><button class="btn sm primary" id="dgdo">더하기</button></div></div>` : ""}
+    ${dayOpen ? `<div class="dg-pick"><p class="small muted">63회 시험까지 ${G.left}일 · 아직 안 푼 문제 ${G.unseen}개 → 하루 <b>${G.rec}문제</b>면 시험 전에 전부 한 번씩 볼 수 있어요. 복습 문제도 같이 세므로 처음엔 30문제로 시작해요.</p>
+      <div class="row">${[...new Set([10, 20, 30, 50, 80, 100, G.rec])].sort((a, b) => a - b).map(n => `<button class="chip" data-goal="${n}" aria-pressed="${n === g}">${n}${n === G.rec ? " (전부 보기)" : n === 30 ? " (기본)" : ""}</button>`).join("")}${S.goal ? `<button class="chip" data-goal="0">기본으로</button>` : ""}</div></div>` : ""}`;
+  document.getElementById("dgset").onclick = () => { dayOpen = !dayOpen; dayAddOpen = false; dayRender(); };
+  document.getElementById("dgadd").onclick = () => { dayAddOpen = !dayAddOpen; dayOpen = false; dayRender(); if (dayAddOpen) document.getElementById("dgn").focus(); };
+  const go = document.getElementById("dgdo");
+  if (go) go.onclick = () => { const n = parseInt(document.getElementById("dgn").value, 10); if (!n) return document.getElementById("dgn").focus(); const v = document.getElementById("dgok").value; dayManual(n, v === "" ? -1 : parseInt(v, 10)); dayAddOpen = false; stats(); };
+  el.querySelectorAll("[data-goal]").forEach(b => b.onclick = () => { S.goal = +b.dataset.goal; save(); dayOpen = false; dayRender(); });
+}
+
 function stats() {
   const ids = Object.keys(S.log).filter(id => byId[id]);
   const n = ids.reduce((a, id) => a + S.log[id].n, 0), ok = ids.reduce((a, id) => a + S.log[id].ok, 0);
-  document.getElementById("st-solved").textContent = `${ids.length}/${QB.length}`;
-  document.getElementById("st-acc").textContent = n ? Math.round(ok / n * 100) + "%" : "—";
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const next = EXAMS.find(e => new Date(e.d + "T00:00:00") >= today);
-  if (next) {
-    const d = Math.round((new Date(next.d + "T00:00:00") - today) / 864e5);
-    document.getElementById("st-dday-l").textContent = `${next.n}회 · ${next.d.slice(5).replace("-", "/")}`;
-    document.getElementById("st-dday").textContent = d ? "D-" + d : "D-DAY";
-  }
+  const d = Math.round((new Date("2026-11-14T00:00:00") - today) / 864e5);
+  document.getElementById("examline").innerHTML = `63회 시험 <b>11월 14일(토) 10:00</b> <span class="dd">${d > 0 ? "D-" + d : d === 0 ? "D-DAY" : "종료"}</span> · 원서접수 10월 12~16일`;
+  document.getElementById("statline").innerHTML = `<span>전체 <b>${QB.length}</b>문항</span><span>푼 문제 <b>${ids.length}</b></span>${n ? `<span>누적 정답률 <b>${Math.round(ok / n * 100)}%</b></span>` : ""}<span>외운 카드 <b>${CARDS.filter(x => S.known.includes(x.tp + ":" + x.f)).length}</b></span><span>오답노트 <b>${S.wrong.length}</b></span>`;
+  dayRender();
 }
 
 // ── 문제 카드
-function qBody(q, numLabel, noSub) {
+function qBody(q, numLabel, noSub, noKill) {
   const seen = new Set();
-  let html = `<div class="qmeta">${numLabel ? `<span class="qid">${numLabel}</span>` : ""}<span class="qid">${q.id}</span>${noSub ? "" : `<span class="tag">${esc(subOf(q))}</span>`}${isKill(q) ? `<span class="tag kill">고오답 유형</span>` : ""}${lvTag(q.lv)}</div>
-    <div class="qth">${esc(q.th)}</div>
+  let html = `<div class="qmeta">${numLabel ? `<span class="qid">${numLabel}</span>` : ""}<span class="qid">${q.id}</span>${noSub ? "" : `<span class="tag">${esc(subOf(q))}</span>`}${isKill(q) && !noKill ? `<span class="tag kill">고오답 유형</span>` : ""}${lvTag(q.lv)}</div>
+    <div class="qth">${esc(String(q.th).replace(/^\s*\d과목\s*\|\s*/, ""))}</div>
     <p class="qtext">${md(q.q, seen)}</p>`;
   if (q.tb) html += `<div class="tables">${q.tb.map(t => tbl(t, t.n)).join("")}</div>`;
   if (q.box) html += `<div class="box">${md(q.box, seen)}</div>`;
@@ -271,9 +327,8 @@ function renderQuiz() {
   const wm = quiz.wrongMode, pool = poolFor();
   const id = quiz.list[quiz.i], q = byId[id];
   let html = `<section class="panel frame">
-    <div class="eyebrow">${wm ? "04 · 오답노트" : "03 · 문제풀이"}</div>
-    <h2>${wm ? "틀린 문제 다시 풀기" : "출제기준 세부항목별 문제풀이"}</h2>
-    <p class="lead">${wm ? `틀린 문제 ${S.wrong.length}개가 모여 있다. 다시 맞히면 오답노트에서 빠진다.` : `문제은행 ${QB.length}문항(1과목 ${QB.filter(x => x.s === 1).length} · 2과목 ${QB.filter(x => x.s === 2).length}). 보기를 고르면 바로 단계별 해설이 열린다.`}</p>
+    <h2>${wm ? "오답노트" : "문제풀이"}</h2>
+    ${wm ? `<p class="lead">틀린 문제와 찍어서 맞힌 문제가 모인다. 다시 맞히면 빠진다.</p>` : ""}
     ${wm ? weakBars() : `<div class="seg" role="group" aria-label="과목">${["전체", "1과목 모델링", "2과목 SQL"].map((t, i) => `<button data-subj="${i}" aria-pressed="${quiz.subj === i}">${t}</button>`).join("")}</div>`}
     <div class="filters">
       <label class="field"><span>세부항목 (공식 출제기준)</span><select id="f-sub">${subSelect(pool)}</select></label>
@@ -287,7 +342,7 @@ function renderQuiz() {
     html += `<section class="panel"><p class="empty">${wm ? "오답노트가 비어 있다. 문제풀이에서 틀린 문제가 여기에 모인다." : "조건에 맞는 문제가 없다. 필터를 바꿔 보자."}</p></section>`;
     view.innerHTML = html; bindQuizFilters(); return;
   }
-  const { html: body, seen } = qBody(q, "", true);
+  const { html: body, seen } = qBody(q, "", true, quiz.why[id] && quiz.why[id].k === "kill");
   html += `<section class="panel frame" id="qcard">
     <div class="qtop"><span class="pill sub">${esc(subOf(q))}</span>
       <span class="qtop-r">${quiz.why[id] ? `<span class="pill ${REASON_STYLE[quiz.why[id].k] || "lv"}" title="${esc(quiz.why[id].t)}">${REASON_LABEL[quiz.why[id].k] || ""}</span>` : ""}<span class="cnt">${quiz.i + 1} / ${quiz.list.length}${S.log[id] ? ` · 기록 ${S.log[id].ok}/${S.log[id].n}` : ""}</span></span></div>
@@ -342,7 +397,7 @@ function bindQuizFilters() {
 const spark = tp => { const d = TREND.data[tp] || [], mx = 6; return `<span class="spark" title="55~61회 복원 기출 출제 수: ${d.join(", ")}">${d.map((v, i) => `<i class="${i === d.length - 1 ? "last" : ""}" style="height:${Math.max(2, v / mx * 18)}px"></i>`).join("")}</span>`; };
 function conceptView() {
   const toc = s => CONCEPTS.filter(c => TOPICS[c.tp].s === s).map(c => `<a href="#c-${c.tp}">${esc(TOPICS[c.tp].n)}<small>문제 ${QB.filter(q => q.tp === c.tp).length}개</small></a>`).join("");
-  let html = `<section class="panel frame"><div class="eyebrow">01 · 개념정리</div><h2>시험 범위 전체 설계도</h2>
+  let html = `<section class="panel frame"><h2>시험 범위 전체 설계도</h2>
     <p class="lead">주제마다 핵심 표와 암기 고리를 정리했다. 읽고 나서 바로 그 주제 문제로 넘어가자. 막대는 55~61회 복원 기출 출제 수(주황 = 61회)다.</p>
     <div class="toc-group"><h3>제1과목 데이터 모델링의 이해 · 10문항</h3><div class="toc">${toc(1)}</div></div>
     <div class="toc-group"><h3>제2과목 SQL 기본 및 활용 · 40문항</h3><div class="toc">${toc(2)}</div></div>
@@ -388,7 +443,7 @@ function cardView() {
   cardList();
   const c = card.list[card.i], known = CARDS.filter(x => S.known.includes(x.tp + ":" + x.f)).length;
   const cnt = {}; CARDS.forEach(x => cnt[x.tp] = (cnt[x.tp] || 0) + 1);
-  let html = `<section class="panel frame"><div class="eyebrow">02 · 암기카드</div><h2>공식 압축 카드 ${CARDS.length}장</h2>
+  let html = `<section class="panel frame"><h2>공식 압축 카드 ${CARDS.length}장</h2>
     <p class="lead">카드를 눌러 뒤집는다. '외웠다'를 누른 카드는 숨길 수 있다. 외운 카드 ${known} / ${CARDS.length}</p>
     <div class="meter ok"><i style="width:${known / CARDS.length * 100}%"></i></div>
     <div class="filters"><label class="field"><span>주제</span><select id="c-tp"><option value="">전체 (${CARDS.length}장)</option>${[1, 2].map(s => `<optgroup label="${s}과목">${Object.keys(TOPICS).filter(k => cnt[k] && TOPICS[k].s === s).map(k => `<option value="${k}" ${card.tp === k ? "selected" : ""}>${esc(TOPICS[k].n)} (${cnt[k]})</option>`).join("")}</optgroup>`).join("")}</select></label>
@@ -425,7 +480,7 @@ function mockView() {
   if (M && M.done) return mockResult();
   const best = n => { const r = S.hist.filter(h => (h.set || 0) === n); return r.length ? Math.max(...r.map(h => h.sc)) : null; };
   const lvTxt = lv => lv < 1.8 ? "기본" : lv < 2.2 ? "중간" : "어려움";
-  view.innerHTML = `<section class="panel frame"><div class="eyebrow">05 · 모의고사</div><h2>실전 모의고사</h2>
+  view.innerHTML = `<section class="panel frame"><h2>실전 모의고사</h2>
     <p class="lead">공식 시험과 똑같이 1과목 10문항 + 2과목 40문항, 90분, 문항당 2점이다. 합격은 총점 60점 이상이고, 과목별 40% 미만이면 과락이다. 1~5회는 회차끼리 문항이 겹치지 않으며 세부항목과 난이도를 고르게 나눴다. 맞춤 모의고사는 무작위가 아니라 내 기록을 보고 고른다.</p>
     <div class="sets">${SETS.map(s => { const b = best(s.n); const k = s.ids.filter(id => byId[id] && isKill(byId[id])).length; return `<button class="setc" data-set="${s.n}"><b>${setName(s.n)}</b><span>50문항 · 난이도 ${lvTxt(s.lv)} · 고오답 ${k}문항</span>${b != null ? `<em>최고 ${b}점</em>` : `<span>아직 안 풂</span>`}</button>`; }).join("")}
       <button class="setc rand" data-set="0"><b>${setName(0)}</b><span>내 기록 기반 — 복습할 오답·약점 세부항목·안 푼 문제 위주로 50문항</span>${best(0) != null ? `<em>최고 ${best(0)}점</em>` : ""}</button></div>
@@ -487,7 +542,7 @@ function mockResult() {
   const M = S.mock, R = M.res, by = {};
   M.ids.forEach(id => { const q = byId[id], k = subOf(q), t = by[k] = by[k] || { n: 0, ok: 0 }; t.n++; if (M.ans[id] === q.a) t.ok++; });
   const rows = Object.entries(by).sort((x, y) => x[1].ok / x[1].n - y[1].ok / y[1].n);
-  view.innerHTML = `<section class="panel frame"><div class="eyebrow">05 · ${setName(M.set)} 결과</div>
+  view.innerHTML = `<section class="panel frame"><h2>${setName(M.set)} 결과</h2>
     <div class="pass ${R.p ? "ok" : "ng"}">${R.p ? "합격선 통과" : R.sc >= 60 ? "과락으로 불합격" : "불합격"}</div>
     <div class="kpis"><div><span>총점</span><b>${R.sc}<small> / 100</small></b></div><div><span>1과목 (과락 4개 미만)</span><b>${R.a}<small> / 10</small></b></div><div><span>2과목 (과락 16개 미만)</span><b>${R.b}<small> / 40</small></b></div></div>
     <p class="small muted">소요 시간 ${Math.floor(R.sec / 60)}분 ${R.sec % 60}초 · 틀린 문제${M.guessed ? `와 찍어서 맞힌 문제 ${M.guessed}개` : ""}는 오답노트에 자동으로 저장됐다. 해설에서 '찍어서 맞았어요'를 눌러 더 넣을 수도 있다.</p>
@@ -523,7 +578,7 @@ function trendView() {
     const d = TREND.data[k] || [], sum = d.reduce((a, b) => a + b, 0);
     return `<tr><td class="t">${esc(TOPICS[k].n)}</td>${d.map(v => `<td class="c" style="${shade(v)}">${v || ""}</td>`).join("")}<td class="sum">${sum}</td></tr>`;
   }).join("");
-  view.innerHTML = `<section class="panel frame"><div class="eyebrow">06 · 출제분석 · 공식 자료</div><h2>시험 구성과 합격 통계</h2>
+  view.innerHTML = `<section class="panel frame"><div class="eyebrow">공식 자료</div><h2>시험 구성과 합격 통계</h2>
     <div class="kpis"><div><span>1과목 ${esc(E.subjects[0][0])}</span><b>${E.subjects[0][1]}<small>문항 · ${E.subjects[0][2]}점</small></b></div><div><span>2과목 ${esc(E.subjects[1][0])}</span><b>${E.subjects[1][1]}<small>문항 · ${E.subjects[1][2]}점</small></b></div><div><span>시험 시간</span><b>${E.minutes}<small>분</small></b></div></div>
     <p class="why"><b>합격 기준:</b> ${esc(E.pass)} · <b>과락:</b> ${esc(E.cut)}. 1과목은 4문항(8점), 2과목은 16문항(32점)보다 적게 맞히면 총점과 상관없이 불합격이다.</p>
     <div class="sec"><div class="sec-h">연도별 합격률 (개발자·공인)</div><div class="bars">${Y.map(y => `<div class="bar"><span>${y[0]}년 · ${fmt(y[3])}명 응시</span><span class="tr"><i class="${y[5] < 45 ? "low" : ""}" style="width:${y[5] / maxRate * 100}%"></i></span><b>${y[5]}%</b></div>`).join("")}</div></div>
@@ -578,7 +633,7 @@ document.getElementById("theme-btn").onclick = () => {
 };
 document.getElementById("reset-btn").onclick = () => {
   if (!confirm("풀이 기록·오답노트·외운 카드·모의고사 기록을 모두 지울까?")) return;
-  S = { log: {}, wrong: [], known: [], theme: S.theme, mock: null, hist: [] }; save(); stats(); setMode(mode);
+  S = { log: {}, wrong: [], known: [], theme: S.theme, mock: null, hist: [], day: {}, goal: S.goal || 0, bank: S.bank, added: {} }; save(); stats(); setMode(mode);
 };
 applyTheme(); stats();
 let start = "quiz"; try { start = localStorage.getItem("sqld.mode") || "quiz"; } catch (e) {}
