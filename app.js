@@ -31,6 +31,12 @@ S.bm = S.bm || { q: [], c: [] }; // 북마크: 문제 id, 개념 블록 키(주�
   S.bank = ids.slice();
   save();
 })();
+(function () {
+  const M = S.mock, h = S.hist && S.hist[S.hist.length - 1];
+  if (M && M.done && M.res && h && !h.ids && h.sc === M.res.sc && (h.set || 0) === (M.set || 0)) {
+    Object.assign(h, { ids: M.ids, ans: M.ans, guess: M.guess || {}, sec: M.res.sec, g: M.guessed || 0 }); save();
+  }
+})();
 const isAdded = q => !!S.added[q.id] && !S.log[q.id] && Date.now() - S.added[q.id] < 60 * DAY;
 
 // ── 공통 도구
@@ -194,16 +200,28 @@ function qBody(q, numLabel, noSub, noKill, noBm) {
   if (q.sql) html += term(q.sql);
   return { html, seen };
 }
+// 휴대폰처럼 좁은 화면에서는 줄 끝 주석을 그 코드 위 줄로 올린다 (주석이 중간에서 잘리지 않게)
+function narrowCode(code) {
+  if (window.innerWidth > 640) return code;
+  return String(code).split("\n").map(line => {
+    const m = line.match(/^(\s*)(.*?\S)\s+(--.*)$/);
+    if (!m || (m[2].split("'").length - 1) % 2) return line; // 따옴표 안의 -- 는 그대로
+    return `${m[1]}${m[3]}\n${m[1]}${m[2]}`;
+  }).join("\n");
+}
 function expHtml(q, pick, seen) {
   const right = pick === q.a;
   let html = `<div class="exp">
-    <div class="verdict">${pick == null ? "" : `<span class="stamp ${right ? "ok" : "ng"}">${right ? "정답 ✓" : "오답 ✗"}</span>`}
-      <span class="ans">정답 ${NO[q.a]} ${esc(q.o[q.a])}</span></div>
-    <div class="sec"><div class="sec-h">핵심 원리</div><p class="why">${md(q.why, seen)}</p></div>`;
+    <div class="ansbox ${pick == null ? "" : right ? "ok" : "ng"}">${pick == null ? "" : `<span class="stamp ${right ? "ok" : "ng"}">${right ? "맞았어요 ✓" : `오답 ✗ · 내 답 ${NO[pick]}`}</span>`}
+      <div class="ans"><small>정답</small>${NO[q.a]} ${esc(q.o[q.a])}</div></div>
+    ${q.sum ? `<div class="sumbox"><div class="sec-h">핵심 요약</div><p>${md(q.sum, seen)}</p></div>` : ""}
+    <div class="sec"><div class="sec-h">${q.sum ? "자세히 설명" : "핵심 원리"}</div><p class="why">${md(q.why, seen)}</p></div>`;
   if (q.st && q.st.length) {
     html += `<div class="sec"><div class="sec-h">단계별 추적</div><div class="steps">${q.st.map(s => {
-      const mono = s.n && /[├└│─]|^(SELECT|MERGE|WITH)\b/m.test(s.n);
-      return `<div class="step"><h4>${esc(s.t)}</h4>${s.tb ? tbl(s.tb, "", true) : ""}${s.n ? `<p class="note${mono ? " tree" : ""}">${mono ? esc(s.n) : md(s.n, seen)}</p>` : ""}</div>`;
+      const mono = s.n && /[├└│─]|^\s*(SELECT|MERGE|WITH|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|TRUNCATE|GRANT|REVOKE|COMMIT|ROLLBACK|SAVEPOINT)\b|^\s*--/m.test(s.n);
+      const tree = s.n && /[├└│─]/.test(s.n);
+      const note = !s.n ? "" : tree ? `<pre class="note tree">${esc(s.n)}</pre>` : mono ? `<pre class="code">${sqlHL(narrowCode(s.n))}</pre>` : `<p class="note">${md(s.n, seen)}</p>`;
+      return `<div class="step"><h4>${esc(s.t)}</h4>${s.tb ? tbl(s.tb, "", true) : ""}${note}</div>`;
     }).join("")}</div></div>`;
   }
   if (q.res) html += `<div class="final"><div class="sec-h">최종 결과</div>${tbl(q.res, "")}</div>`;
@@ -222,6 +240,92 @@ function bindConceptLinks(root) {
     if (el) setTimeout(() => el.scrollIntoView({ block: "start" }), 30);
   });
 }
+
+
+// ── 풀이 보드: 2과목 문제 옆에 마우스·터치·펜으로 적는 연습장 (+ 키보드 메모)
+// 넓은 화면은 문제 오른쪽에 고정, 좁은 화면은 문제 안에서 펼쳐 쓴다. 문항마다 따로 기억한다(이 탭을 닫으면 사라짐).
+const Board = (() => {
+  const el = document.createElement("aside");
+  el.className = "board"; el.hidden = true;
+  el.innerHTML = `<div class="bd-bar"><b>✏️ 풀이 보드</b><span class="bd-tools" role="toolbar" aria-label="보드 도구">
+      <button data-tool="pen" data-color="ink" aria-pressed="true" title="펜">펜</button>
+      <button data-tool="pen" data-color="red" aria-pressed="false" title="빨간 펜"><i class="sw r"></i></button>
+      <button data-tool="pen" data-color="blue" aria-pressed="false" title="파란 펜"><i class="sw b"></i></button>
+      <button data-tool="eraser" aria-pressed="false" title="지우개">지우개</button>
+      <button data-act="undo" title="되돌리기">↶</button>
+      <button data-act="clear" title="전체 지우기">비우기</button>
+      <button data-act="memo" aria-pressed="false" title="키보드로 메모">⌨️ 메모</button>
+    </span></div>
+    <div class="bd-wrap"><canvas aria-label="풀이 보드 — 마우스나 손가락으로 적기"></canvas></div>
+    <textarea class="bd-memo" hidden placeholder="키보드로 적는 메모예요. 예: 2번 행 → 100 <> NULL → 모름 → 안 나옴"></textarea>`;
+  const cv = el.querySelector("canvas"), wrap = el.querySelector(".bd-wrap"), memo = el.querySelector(".bd-memo");
+  const ctx = cv.getContext("2d");
+  const store = {}; // 문항 id → { strokes, memo }
+  let cur = null, tool = "pen", color = "ink", drawing = null, openNarrow = false;
+  try { openNarrow = localStorage.getItem("sqld.board") === "1"; } catch (e) {}
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const col = c => c === "red" ? css("--acc") : c === "blue" ? css("--blue") : css("--ink");
+  const wide = () => window.innerWidth >= 1100;
+  function size() {
+    const r = wrap.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+    if (!r.width || !r.height) return;
+    cv.width = Math.round(r.width * d); cv.height = Math.round(r.height * d);
+    ctx.setTransform(d, 0, 0, d, 0, 0); redraw();
+  }
+  function line(s) {
+    ctx.save();
+    ctx.globalCompositeOperation = s.tool === "eraser" ? "destination-out" : "source-over";
+    ctx.strokeStyle = col(s.color); ctx.lineWidth = s.tool === "eraser" ? 22 : 2.4; ctx.lineCap = ctx.lineJoin = "round";
+    ctx.beginPath(); s.p.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+    if (s.p.length === 1) ctx.lineTo(s.p[0][0] + .1, s.p[0][1]);
+    ctx.stroke(); ctx.restore();
+  }
+  function redraw() { ctx.clearRect(0, 0, cv.width, cv.height); if (cur) store[cur].strokes.forEach(line); }
+  const pos = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  cv.addEventListener("pointerdown", e => { if (!cur) return; cv.setPointerCapture(e.pointerId); drawing = { tool, color, p: [pos(e)] }; store[cur].strokes.push(drawing); line(drawing); e.preventDefault(); });
+  cv.addEventListener("pointermove", e => { if (!drawing) return; drawing.p.push(pos(e)); redraw(); e.preventDefault(); });
+  const end = () => { drawing = null; };
+  cv.addEventListener("pointerup", end); cv.addEventListener("pointercancel", end);
+  memo.addEventListener("input", () => { if (cur) store[cur].memo = memo.value; });
+  el.querySelector(".bd-tools").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.tool) {
+      tool = b.dataset.tool; if (b.dataset.color) color = b.dataset.color;
+      el.querySelectorAll("[data-tool]").forEach(x => x.setAttribute("aria-pressed", x === b));
+      showMemo(false);
+    } else if (b.dataset.act === "undo") { if (cur) { store[cur].strokes.pop(); redraw(); } }
+    else if (b.dataset.act === "clear") { if (cur) { store[cur].strokes = []; store[cur].memo = ""; memo.value = ""; redraw(); } }
+    else if (b.dataset.act === "memo") showMemo(memo.hidden);
+  });
+  function showMemo(on) { memo.hidden = !on; wrap.hidden = on; el.querySelector('[data-act="memo"]').setAttribute("aria-pressed", on); if (on) memo.focus(); else size(); }
+  function place() {
+    const slot = view.querySelector(".board-slot");
+    if (!cur || !slot) { hide(); return; }
+    const exam = !document.getElementById("exambar").hidden;
+    document.body.classList.toggle("board-on", wide());
+    document.body.classList.toggle("board-exam", exam);
+    if (wide()) {
+      slot.innerHTML = "";
+      if (el.parentNode !== document.body) document.body.appendChild(el);
+      el.classList.add("fixed"); el.hidden = false;
+    } else {
+      el.classList.remove("fixed");
+      slot.innerHTML = `<button class="btn sm bd-toggle" aria-expanded="${openNarrow}">${openNarrow ? "✏️ 풀이 보드 접기" : "✏️ 풀이 보드 펼치기 — 표·코드 보며 적기"}</button>`;
+      slot.querySelector(".bd-toggle").onclick = () => { openNarrow = !openNarrow; try { localStorage.setItem("sqld.board", openNarrow ? "1" : "0"); } catch (e) {} place(); };
+      if (openNarrow) { slot.appendChild(el); el.hidden = false; } else el.hidden = true;
+    }
+    requestAnimationFrame(size);
+  }
+  function attach(id) {
+    cur = id; if (!store[id]) store[id] = { strokes: [], memo: "" };
+    memo.value = store[id].memo; place();
+  }
+  function hide() { cur = null; el.hidden = true; document.body.classList.remove("board-on", "board-exam"); }
+  let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { if (cur) place(); }, 120); });
+  new MutationObserver(() => cur && redraw()).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  return { attach, hide };
+})();
+const boardFor = q => q && q.s === 2 ? Board.attach(q.id) : Board.hide();
 
 // ── 문제풀이 / 오답노트
 // ── 북마크: 문제와 개념 블록. 눌러서 켜고 끈다
@@ -378,7 +482,7 @@ function renderQuiz() {
   </section>`;
   if (!q) {
     html += `<section class="panel"><p class="empty">${wm ? (quiz.src === "bm" ? "북마크한 문제가 없다. 문제 위의 ☆ 북마크를 누르면 여기에 모인다." : "오답노트가 비어 있다. 문제풀이에서 틀린 문제가 여기에 모인다.") : "조건에 맞는 문제가 없다. 필터를 바꿔 보자."}</p></section>`;
-    view.innerHTML = html; bindQuizFilters(); bindReviewSeg(); return;
+    view.innerHTML = html; bindQuizFilters(); bindReviewSeg(); Board.hide(); return;
   }
   const { html: body, seen } = qBody(q, "", true, quiz.why[id] && quiz.why[id].k === "kill");
   html += `<section class="panel frame" id="qcard">
@@ -386,6 +490,7 @@ function renderQuiz() {
       <span class="qtop-r">${quiz.why[id] ? `<span class="pill ${REASON_STYLE[quiz.why[id].k] || "lv"}" title="${esc(quiz.why[id].t)}">${REASON_LABEL[quiz.why[id].k] || ""}</span>` : ""}<span class="cnt">${quiz.i + 1} / ${quiz.list.length}${S.log[id] ? ` · 기록 ${S.log[id].ok}/${S.log[id].n}` : ""}</span></span></div>
     <div class="meter"><i style="width:${(quiz.i + 1) / quiz.list.length * 100}%"></i></div>
     ${body}
+    ${q.s === 2 ? `<div class="board-slot"></div>` : ""}
     <div class="opts">${q.o.map((t, i) => {
       const cls = quiz.pick == null ? "" : i === q.a ? "right" : i === quiz.pick ? "wrong" : "";
       return `<button class="opt ${cls}" data-i="${i}" ${quiz.pick != null ? "disabled" : ""}><span class="no">${i + 1}</span><span>${esc(t)}</span></button>`;
@@ -394,7 +499,7 @@ function renderQuiz() {
     ${quiz.pick != null ? expHtml(q, quiz.pick, seen) : ""}
     <div class="navrow"><button class="btn" data-nav="-1" ${quiz.i ? "" : "disabled"}>← 이전</button><button class="btn primary" data-nav="1" ${quiz.i < quiz.list.length - 1 ? "" : "disabled"}>다음 문제 →</button></div>
   </section>`;
-  view.innerHTML = html; bindQuizFilters(); bindReviewSeg(); bindConceptLinks();
+  view.innerHTML = html; bindQuizFilters(); bindReviewSeg(); bindConceptLinks(); boardFor(q);
   view.querySelectorAll(".opt").forEach(b => b.onclick = () => choose(+b.dataset.i));
   view.querySelectorAll("[data-nav]").forEach(b => b.onclick = () => go(+b.dataset.nav));
   bindGuess(view);
@@ -522,8 +627,9 @@ function mockView() {
     <p class="lead">공식 시험과 똑같이 1과목 10문항 + 2과목 40문항, 90분, 문항당 2점이다. 합격은 총점 60점 이상이고, 과목별 40% 미만이면 과락이다. 1~5회는 회차끼리 문항이 겹치지 않으며 세부항목과 난이도를 고르게 나눴다. 맞춤 모의고사는 무작위가 아니라 내 기록을 보고 고른다.</p>
     <div class="sets">${SETS.map(s => { const b = best(s.n); const k = s.ids.filter(id => byId[id] && isKill(byId[id])).length; return `<button class="setc" data-set="${s.n}"><b>${setName(s.n)}</b><span>50문항 · 난이도 ${lvTxt(s.lv)} · 고오답 ${k}문항</span>${b != null ? `<em>최고 ${b}점</em>` : `<span>아직 안 풂</span>`}</button>`; }).join("")}
       <button class="setc rand" data-set="0"><b>${setName(0)}</b><span>내 기록 기반 — 복습할 오답·약점 세부항목·안 푼 문제 위주로 50문항</span>${best(0) != null ? `<em>최고 ${best(0)}점</em>` : ""}</button></div>
-    ${S.hist.length ? `<h3>지난 기록</h3><div class="scroll"><table><thead><tr><th>날짜</th><th>회차</th><th>점수</th><th>1과목</th><th>2과목</th><th>결과</th></tr></thead><tbody>${S.hist.slice(-10).reverse().map(r => `<tr><td>${esc(r.d)}</td><td>${setName(r.set || 0)}</td><td class="num">${r.sc}</td><td class="num">${r.a}/10</td><td class="num">${r.b}/40</td><td>${r.p ? "합격" : "불합격"}</td></tr>`).join("")}</tbody></table></div>` : ""}
+    ${S.hist.length ? `<h3>지난 기록</h3><div class="scroll"><table><thead><tr><th>날짜</th><th>회차</th><th>점수</th><th>1과목</th><th>2과목</th><th>결과</th><th>해설</th></tr></thead><tbody>${S.hist.map((r, i) => [r, i]).slice(-10).reverse().map(([r, i]) => `<tr><td>${esc(r.d)}</td><td>${setName(r.set || 0)}</td><td class="num">${r.sc}</td><td class="num">${r.a}/10</td><td class="num">${r.b}/40</td><td>${r.p ? "합격" : "불합격"}</td><td>${r.ids ? `<button class="link" data-hist="${i}">해설 보기</button>` : `<span class="small muted">답안 없음</span>`}</td></tr>`).join("")}</tbody></table></div>` : ""}
   </section>`;
+  view.querySelectorAll("[data-hist]").forEach(b => b.onclick = () => { const h = S.hist[+b.dataset.hist]; mockResult(histAsMock(h), h.d); window.scrollTo(0, 0); });
   view.querySelectorAll("[data-set]").forEach(b => b.onclick = () => {
     const n = +b.dataset.set;
     const ids = n ? SETS.find(s => s.n === n).ids.filter(id => byId[id])
@@ -538,6 +644,7 @@ function mockPaper() {
   view.innerHTML = `<section class="panel frame" id="qcard">
     <div class="spread"><span class="eyebrow">${setName(M.set)} · ${M.i < 10 ? "제1과목" : "제2과목"}</span><span class="small muted">답안 ${answered} / ${M.ids.length}</span></div>
     ${body}
+    ${q.s === 2 ? `<div class="board-slot"></div>` : ""}
     <div class="opts">${q.o.map((t, i) => `<button class="opt ${M.ans[id] === i ? "sel" : ""}" data-i="${i}"><span class="no">${i + 1}</span><span>${esc(t)}</span></button>`).join("")}</div>
     <button class="guess" id="mark-guess" aria-pressed="${!!(M.guess && M.guess[id])}">${M.guess && M.guess[id] ? "✓ 찍음 표시함 · 맞혀도 오답노트로 (누르면 취소)" : "🤔 찍음 표시 — 확실하지 않으면 눌러 두기"}</button>
     <div class="navrow"><button class="btn" data-nav="-1" ${M.i ? "" : "disabled"}>← 이전</button><button class="btn primary" data-nav="1" ${M.i < M.ids.length - 1 ? "" : "disabled"}>다음 →</button></div>
@@ -555,6 +662,7 @@ function mockPaper() {
   document.getElementById("mock-quit").onclick = () => { if (confirm("이번 시험을 버리고 처음 화면으로 돌아갈까?")) { S.mock = null; save(); mockView(); } };
   const bar = document.getElementById("exambar");
   bar.hidden = false;
+  boardFor(q);
   bar.innerHTML = `<span class="small">${setName(M.set)}</span><span class="clock" id="clock">90:00</span><button class="btn sm primary" id="bar-submit">제출</button>`;
   document.getElementById("bar-submit").onclick = () => document.getElementById("mock-submit").click();
   clearInterval(tick);
@@ -574,30 +682,34 @@ function submitMock() {
   M.guessed = g;
   const sc = (a + b) * 2, p = sc >= 60 && a >= 4 && b >= 16;
   M.done = true; M.res = { a, b, sc, p, sec: Math.round((Date.now() - M.t0) / 1000) };
-  S.hist.push({ d: new Date().toISOString().slice(0, 10), set: M.set || 0, sc, a, b, p }); save(); mockResult(); window.scrollTo(0, 0);
+  S.hist.push({ d: new Date().toISOString().slice(0, 10), set: M.set || 0, sc, a, b, p, ids: M.ids, ans: M.ans, guess: M.guess || {}, sec: M.res.sec, g: g });
+  save(); mockResult(); window.scrollTo(0, 0);
 }
-function mockResult() {
-  const M = S.mock, R = M.res, by = {};
+function histAsMock(h) { return { set: h.set || 0, ids: h.ids, ans: h.ans || {}, guess: h.guess || {}, guessed: h.g || 0, res: { a: h.a, b: h.b, sc: h.sc, p: h.p, sec: h.sec || 0 } }; }
+function mockResult(M, fromHist) {
+  M = M || S.mock;
+  const R = M.res, by = {};
   M.ids.forEach(id => { const q = byId[id], k = subOf(q), t = by[k] = by[k] || { n: 0, ok: 0 }; t.n++; if (M.ans[id] === q.a) t.ok++; });
   const rows = Object.entries(by).sort((x, y) => x[1].ok / x[1].n - y[1].ok / y[1].n);
-  view.innerHTML = `<section class="panel frame"><h2>${setName(M.set)} 결과</h2>
+  view.innerHTML = `<section class="panel frame"><h2>${setName(M.set)} 결과${fromHist ? ` <small class="muted">· ${esc(fromHist)} 기록</small>` : ""}</h2>
     <div class="pass ${R.p ? "ok" : "ng"}">${R.p ? "합격선 통과" : R.sc >= 60 ? "과락으로 불합격" : "불합격"}</div>
     <div class="kpis"><div><span>총점</span><b>${R.sc}<small> / 100</small></b></div><div><span>1과목 (과락 4개 미만)</span><b>${R.a}<small> / 10</small></b></div><div><span>2과목 (과락 16개 미만)</span><b>${R.b}<small> / 40</small></b></div></div>
     <p class="small muted">소요 시간 ${Math.floor(R.sec / 60)}분 ${R.sec % 60}초 · 틀린 문제${M.guessed ? `와 찍어서 맞힌 문제 ${M.guessed}개` : ""}는 오답노트에 자동으로 저장됐다. 해설에서 '찍어서 맞았어요'를 눌러 더 넣을 수도 있다.</p>
     <div class="sec"><div class="sec-h">세부항목별 정답 (낮은 순)</div><div class="bars">${rows.map(([k, t]) => `<div class="bar"><span>${esc(k)}</span><span class="tr"><i class="${t.ok / t.n < .6 ? "low" : ""}" style="width:${t.ok / t.n * 100}%"></i></span><b>${t.ok}/${t.n}</b></div>`).join("")}</div></div>
     <div class="sec"><div class="sec-h">문항별 채점 — 번호를 누르면 해설</div>
     <div class="omr">${M.ids.map((x, i) => `<button class="${M.ans[x] === byId[x].a ? "r" : "w"} ${M.guess && M.guess[x] ? "g" : ""}" data-rv="${i}" aria-label="${i + 1}번 해설">${i + 1}</button>`).join("")}</div></div>
-    <div class="row"><button class="btn primary grow" id="mock-again">다른 회차 풀기</button><button class="btn grow" id="mock-wrong">오답노트로</button></div>
+    <div class="row">${fromHist ? `<button class="btn primary grow" id="mock-back">← 모의고사 목록</button>` : `<button class="btn primary grow" id="mock-again">다른 회차 풀기</button><button class="btn grow" id="mock-wrong">오답노트로</button>`}</div>
   </section><div id="review"></div>`;
   const rv = i => {
     const id = M.ids[i], q = byId[id], { html: body, seen } = qBody(q, `${i + 1}번`), pick = M.ans[id];
     const box = document.getElementById("review");
-    box.innerHTML = `<section class="panel frame" id="qcard">${body}
+    box.innerHTML = `<section class="panel frame" id="qcard">${body}${q.s === 2 ? `<div class="board-slot"></div>` : ""}
       <div class="opts">${q.o.map((t, j) => `<button class="opt ${j === q.a ? "right" : j === pick ? "wrong" : ""}" disabled><span class="no">${j + 1}</span><span>${esc(t)}</span></button>`).join("")}</div>
       ${pick == null ? `<p class="small muted">답을 표시하지 않은 문항</p>` : ""}${pick === q.a ? guessBtn(id) : ""}${expHtml(q, pick == null ? null : pick, seen)}</section>`;
-    bindConceptLinks(box); bindGuess(box); top();
+    bindConceptLinks(box); bindGuess(box); boardFor(q); top();
   };
   view.querySelectorAll("[data-rv]").forEach(b => b.onclick = () => rv(+b.dataset.rv));
+  if (fromHist) { document.getElementById("mock-back").onclick = () => { mockView(); window.scrollTo(0, 0); }; return; }
   document.getElementById("mock-again").onclick = () => { S.mock = null; save(); mockView(); };
   document.getElementById("mock-wrong").onclick = () => { S.mock = null; save(); setMode("wrong"); };
 }
@@ -648,6 +760,7 @@ function setMode(m, silent) {
   mode = m;
   document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-pressed", b.dataset.mode === m));
   if (m !== "mock") { clearInterval(tick); document.getElementById("exambar").hidden = true; }
+  Board.hide();
   try { localStorage.setItem("sqld.mode", m); } catch (e) {}
   if (silent) return;
   ({ quiz: () => quizView(false), wrong: () => quizView(true), concept: conceptView, card: cardView, mock: mockView, trend: trendView })[m]();

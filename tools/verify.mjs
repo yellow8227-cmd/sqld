@@ -59,7 +59,7 @@ for (const q of QB) {
   const subs = ctx.window.SYLLABUS.filter(x => x.s === q.s).flatMap(x => x.items.flatMap(i => i.subs));
   if (!subs.includes(sub)) errs.push(`세부항목 없음/오류(${sub})`);
   if (!ctx.window.TOPICS[q.tp] || ctx.window.TOPICS[q.tp].s !== q.s) errs.push(`tp 오류(${q.tp})`);
-  for (const k of ["id", "th", "q", "why", "trap", "memo"]) if (!q[k]) errs.push(k + " 없음");
+  for (const k of ["id", "th", "q", "sum", "why", "trap", "memo"]) if (!q[k]) errs.push(k + " 없음");
   if (q.pg && !q.res) errs.push("pg 있는데 res 없음");
   if (errs.length) { bad++; console.log(`✗ ${q.id} 구조: ${errs.join(", ")}`); }
 }

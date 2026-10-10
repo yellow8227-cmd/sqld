@@ -11,16 +11,19 @@
   sql: "SELECT ID, SAL,\n       COUNT(*) OVER (ORDER BY SAL)          AS CNT,\n       ROUND(AVG(SAL) OVER (ORDER BY SAL), 1) AS AVG_SAL\n  FROM T;",
   o: ["CNT 5, AVG_SAL 220", "CNT 4, AVG_SAL 200", "CNT 6, AVG_SAL 250", "CNT 2, AVG_SAL 300"],
   a: 0,
-  why: "OVER 절에 ORDER BY만 쓰고 프레임을 생략하면 RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW가 적용된다. RANGE는 '정렬 값' 기준이므로 현재 행과 SAL이 같은 동료 행(peer)까지 한꺼번에 프레임에 들어간다. ID 4(SAL 300)의 프레임은 SAL ≤ 300인 5개 행(100, 200, 200, 300, 300)이고, 합계 1100 ÷ 5 = 220이다. 같은 SAL인 ID 5도 똑같이 (5, 220)이다.",
+  sum: "ORDER BY만 쓰면 같은 SAL 값은 한 묶음으로 같이 계산돼요. 그래서 ID 4는 SAL 300인 ID 5까지 함께 세어 5행, 평균 220이 나와요.",
+  why: "OVER 안에 ORDER BY만 쓰고 프레임(합계·평균을 낼 때 같이 보는 행의 범위)을 적지 않으면, DB가 'RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW'를 대신 넣어요. 우리말로 하면 '맨 처음부터 지금 값까지'예요.\n\n여기서 RANGE는 행 번호가 아니라 정렬 값으로 범위를 정한다는 뜻이에요. **그래서 지금 행과 SAL이 같은 행(동료 행)은 순서와 상관없이 모두 한꺼번에 범위에 들어가요.**\n\n왜 이렇게 만들었을까요? SAL이 같은 두 행 중 누가 먼저인지는 정해져 있지 않아요. 행 단위로 끊으면 읽히는 순서에 따라 값이 달라질 수 있어요. 값 단위로 끊으면 같은 값의 행은 늘 같은 결과를 받아요.\n\n이 데이터에 대입해 볼게요. ID 1(100)은 100 하나만 봐서 1행, 평균 100이에요. ID 2와 ID 3(200)은 둘 다 100, 200, 200을 봐서 3행, 평균 166.7이에요. ID 4와 ID 5(300)는 둘 다 100, 200, 200, 300, 300을 봐서 5행이에요. 합계 1100을 5로 나누면 220이에요. ID 6(400)은 전체 6행, 평균 250이에요.\n\n결론적으로 ID 4의 CNT는 5, AVG_SAL은 220이에요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "SELECT ID, SAL,                                -- ④ 행마다 아래 두 값을 붙여요 (6행 그대로)\n       COUNT(*) OVER (ORDER BY SAL)  AS CNT,    -- ② SAL 오름차순 ③ 범위 = 처음 ~ 지금 SAL과 같은 값까지\n       ROUND(AVG(SAL) OVER (ORDER BY SAL), 1)   -- ③ 같은 범위의 평균, 소수 첫째 자리까지\n                                     AS AVG_SAL\n  FROM T;                                       -- ① 6행, PARTITION BY가 없어서 전체가 한 묶음" },
     { t: "[원본] SAL 오름차순 정렬", tb: { c: ["ID", "SAL"], r: [[1, 100], [2, 200], [3, 200], [4, 300], [5, 300], [6, 400]] } },
     { t: "[1단계] RANGE 프레임 = SAL ≤ 현재 SAL인 모든 행", tb: { c: ["ID", "SAL", "프레임에 든 SAL", "CNT", "AVG_SAL"], r: [[1, 100, "100", 1, 100], [2, 200, "100, 200, 200", 3, 166.7], [3, 200, "100, 200, 200", 3, 166.7], [4, 300, "100, 200, 200, 300, 300", 5, 220], [5, 300, "100, 200, 200, 300, 300", 5, 220], [6, 400, "전체", 6, 250]], hl: [3, 4] } },
-    { t: "[2단계] 만약 ROWS UNBOUNDED PRECEDING이었다면 (비교)", tb: { c: ["ID", "CNT", "AVG_SAL"], r: [[4, 4, 200], [5, 5, 220]] }, n: "ROWS는 물리적 행 단위라 동료 행을 묶지 않는다. 같은 SAL 사이의 순서도 보장되지 않는다." }
+    { t: "[2단계] 만약 ROWS UNBOUNDED PRECEDING이었다면 (비교)", tb: { c: ["ID", "CNT", "AVG_SAL"], r: [[4, 4, 200], [5, 5, 220]] }, n: "ROWS는 물리적 행 단위라 동료 행을 묶지 않는다. 같은 SAL 사이의 순서도 보장되지 않는다." },
+    { t: "의도대로 쓰려면: 같은 값이어도 한 행씩 누적하기", n: "-- ROWS(행 단위) + 겹치지 않는 정렬 키(ID)를 함께 써요\nSELECT ID, SAL,\n       COUNT(*) OVER (ORDER BY SAL, ID ROWS UNBOUNDED PRECEDING) AS CNT,\n       ROUND(AVG(SAL) OVER (ORDER BY SAL, ID ROWS UNBOUNDED PRECEDING), 1) AS AVG_SAL\n  FROM T;\n-- ID 4 → CNT 4, AVG_SAL 200\n-- ID 5 → CNT 5, AVG_SAL 220" }
   ],
   res: { c: ["ID", "CNT", "AVG_SAL"], r: [[1, 1, 100], [2, 3, 166.7], [3, 3, 166.7], [4, 5, 220], [5, 5, 220], [6, 6, 250]] },
   pg: "SELECT ID, COUNT(*) OVER (ORDER BY SAL) CNT, ROUND(AVG(SAL) OVER (ORDER BY SAL), 1) AVG_SAL FROM T ORDER BY ID",
-  ox: ["정답.", "ROWS 프레임처럼 한 행씩 누적해 ID 4를 4번째 행에서 끊은 경우다. 기본 프레임은 RANGE라 같은 SAL(300)인 ID 5까지 포함한다.", "ORDER BY가 없을 때(파티션 전체)의 값이다. ORDER BY가 있으면 기본 프레임은 현재 값까지다.", "같은 SAL 값끼리만 묶는 PARTITION BY SAL처럼 본 경우다."],
-  trap: "SUM뿐 아니라 COUNT, AVG, MAX 등 모든 집계형 윈도우 함수에 같은 기본 프레임이 적용된다. 정렬 컬럼에 동일값이 있으면 '행 번호'가 아니라 '값'으로 끊어야 한다.",
+  ox: ["정답이에요. 기본 범위가 '같은 값까지'라서 ID 4는 SAL 300인 ID 5까지 함께 봐요. 5행, 1100 ÷ 5 = 220이에요.", "이렇게 생각하면 틀려요: '한 행씩 차례로 쌓으니 ID 4는 4번째 행에서 끊긴다'. 그건 ROWS(행 단위)일 때예요. 기본은 RANGE라서 같은 300인 ID 5도 같이 들어가요.", "이렇게 생각하면 틀려요: '항상 전체를 다 본다'. 그건 OVER 안에 ORDER BY가 없을 때예요(6행, 1500 ÷ 6 = 250). ORDER BY가 있으면 '처음부터 지금 값까지'만 봐요.", "이렇게 생각하면 틀려요: '같은 SAL끼리만 묶는다'. 그건 PARTITION BY SAL이에요(300인 2행, 평균 300). ORDER BY는 묶음을 나누지 않고 쌓는 순서만 정해요."],
+  trap: "SUM만이 아니라 COUNT, AVG, MAX 같은 모든 집계 윈도우 함수에 같은 기본 범위가 적용돼요. 정렬 값에 같은 값이 있으면 '몇 번째 행'이 아니라 '어떤 값까지'로 끊어야 해요.",
   memo: "ORDER BY만 → RANGE → 같은 값은 한 덩어리"
 },
 {
@@ -31,16 +34,18 @@
   sql: "SELECT ID, SAL,\n       SUM(SAL) OVER (ORDER BY SAL\n                      ROWS  BETWEEN 1 PRECEDING   AND CURRENT ROW) AS R1,\n       SUM(SAL) OVER (ORDER BY SAL\n                      RANGE BETWEEN 100 PRECEDING AND CURRENT ROW) AS R2\n  FROM T;",
   o: ["ID 4 (500, 700), ID 5 (800, 500)", "ID 4 (500, 500), ID 5 (800, 800)", "ID 4 (700, 700), ID 5 (800, 500)", "ID 4 (500, 700), ID 5 (800, 1300)"],
   a: 0,
-  why: "ROWS는 물리적 행 개수로 범위를 정한다. 1 PRECEDING은 '바로 앞 한 행 + 현재 행'이다. RANGE는 정렬 값(SAL)으로 범위를 정한다. 100 PRECEDING은 'SAL이 (현재 SAL − 100) 이상, 현재 SAL 이하인 모든 행'이다. ID 4(300)의 R2는 SAL 200~300인 행 3개(200 + 200 + 300 = 700)이고, ID 5(500)의 R2는 SAL 400~500인 행이 자기 자신뿐이라 500이다.",
+  sum: "ROWS 1 PRECEDING은 '바로 앞 한 행'을, RANGE 100 PRECEDING은 'SAL이 100 작은 값까지'를 봐요. 그래서 ID 4는 (500, 700), ID 5는 (800, 500)이에요.",
+  why: "프레임(합계를 낼 때 같이 보는 행의 범위)을 정하는 방법은 두 가지예요. ROWS는 '몇 번째 행인가'로, RANGE는 '값이 얼마나 차이 나는가'로 범위를 정해요.\n\n**ROWS 1 PRECEDING은 '바로 앞 1행 + 지금 행'이고, RANGE 100 PRECEDING은 'SAL이 (지금 SAL − 100) 이상, 지금 SAL 이하인 모든 행'이에요.**\n\nRANGE의 숫자는 행 개수가 아니라 값의 폭이에요. 그래서 RANGE에 숫자를 쓰려면 정렬 기준이 숫자나 날짜처럼 뺄셈이 되는 컬럼 하나여야 해요.\n\n정렬하면 100, 200, 200, 300, 500 순서예요. ID 4(300)의 R1은 바로 앞 행 200 + 300 = 500이에요. R2는 SAL이 200~300인 행 세 개라 200 + 200 + 300 = 700이에요.\n\nID 5(500)의 R1은 바로 앞 행 300 + 500 = 800이에요. R2는 SAL이 400~500인 행을 찾는데, 자기 자신뿐이라 500이에요.\n\n결론은 ID 4 (500, 700), ID 5 (800, 500)이에요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "SELECT ID, SAL,\n       SUM(SAL) OVER (ORDER BY SAL                -- ② SAL 오름차순: 100, 200, 200, 300, 500\n                      ROWS  BETWEEN 1 PRECEDING   -- ③ 행 기준: 바로 앞 1행부터\n                            AND CURRENT ROW)      --    지금 행까지 (최대 2행)\n         AS R1,\n       SUM(SAL) OVER (ORDER BY SAL                -- ② 같은 정렬\n                      RANGE BETWEEN 100 PRECEDING -- ③ 값 기준: 지금 SAL − 100 이상부터\n                            AND CURRENT ROW)      --    지금 SAL(과 같은 값의 행)까지\n         AS R2\n  FROM T;                                         -- ① 5행, 전체가 한 묶음" },
     { t: "[원본] SAL 오름차순", tb: { c: ["순서", "ID", "SAL"], r: [[1, 1, 100], [2, 2, 200], [3, 3, 200], [4, 4, 300], [5, 5, 500]] } },
     { t: "[1단계] ROWS 1 PRECEDING (행 기준)", tb: { c: ["ID", "범위", "R1"], r: [[4, "앞 행(200) + 300", 500], [5, "앞 행(300) + 500", 800]] } },
     { t: "[2단계] RANGE 100 PRECEDING (값 기준)", tb: { c: ["ID", "SAL 범위", "포함 행", "R2"], r: [[4, "200 ~ 300", "200, 200, 300", 700], [5, "400 ~ 500", "500", 500]], hl: [0, 1] } }
   ],
   res: { c: ["ID", "R1", "R2"], r: [[4, 500, 700], [5, 800, 500]] },
   pg: "SELECT ID, R1, R2 FROM (SELECT ID, SUM(SAL) OVER (ORDER BY SAL ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) R1, SUM(SAL) OVER (ORDER BY SAL RANGE BETWEEN 100 PRECEDING AND CURRENT ROW) R2 FROM T) X WHERE ID IN (4, 5) ORDER BY ID",
-  ox: ["정답.", "RANGE를 ROWS와 같은 '앞 한 행'으로 읽은 경우다. RANGE의 100은 행 수가 아니라 값의 폭이다.", "ROWS도 같은 값(200, 200)을 한꺼번에 묶는다고 본 경우다. ROWS는 동료 행을 묶지 않는다.", "ID 5의 R2에서 100 PRECEDING을 '100행 앞'으로 읽어 처음부터 누적(1300)한 경우다."],
-  trap: "ID 2, 3처럼 정렬 값이 같은 행의 R1은 둘 중 어느 행이 먼저 읽히느냐에 따라 달라질 수 있다. ROWS 프레임은 동일값이 있으면 결과가 비결정적이 된다.",
+  ox: ["정답이에요. ID 4는 R1 = 200 + 300, R2 = 200 + 200 + 300이에요. ID 5는 R1 = 300 + 500, R2 = 500(400~500 사이에 자기뿐)이에요.", "이렇게 생각하면 틀려요: 'RANGE 100도 앞 한 행만 본다'. 그래서 R2가 R1과 똑같아졌어요. RANGE의 100은 행 수가 아니라 SAL 값의 차이예요.", "이렇게 생각하면 틀려요: 'ROWS도 같은 값(200, 200)을 한 묶음으로 본다'. 그래서 ID 4의 R1에 200을 두 번 더해 700이 됐어요. 같은 값을 묶는 건 RANGE뿐이고, ROWS는 딱 앞 1행만 봐요.", "이렇게 생각하면 틀려요: '100 PRECEDING은 100행 앞까지'. 그래서 ID 5의 R2를 처음부터 다 더해 1300이 됐어요. RANGE의 100은 값의 차이예요."],
+  trap: "ID 2와 ID 3처럼 정렬 값이 같은 행의 R1은 둘 중 누가 먼저 읽히느냐에 따라 달라질 수 있어요. ROWS로 범위를 정할 때 같은 값이 있으면 결과가 실행마다 다를 수 있어요.",
   memo: "ROWS n = n행 / RANGE n = 값 차이 n"
 },
 {
@@ -51,17 +56,20 @@
   sql: "SELECT DEPT, ENAME, SAL,\n       FIRST_VALUE(SAL) OVER (PARTITION BY DEPT ORDER BY SAL DESC) AS F1,\n       LAST_VALUE(SAL)  OVER (PARTITION BY DEPT ORDER BY SAL DESC) AS L1,\n       LAST_VALUE(SAL)  OVER (PARTITION BY DEPT ORDER BY SAL DESC\n                              ROWS BETWEEN CURRENT ROW\n                                       AND UNBOUNDED FOLLOWING) AS L2\n  FROM EMP;",
   o: ["300, 200, 100", "300, 100, 100", "300, 200, 200", "100, 200, 300"],
   a: 0,
-  why: "F1, L1은 프레임을 생략했으므로 'RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW'다. 프레임의 첫 행은 늘 파티션의 첫 행이라 F1 = 300이다. L1은 프레임의 마지막 행인데, RANGE라서 현재 행과 SAL이 같은 PARK까지가 끝이므로 200이다. L2는 프레임을 '현재 행부터 파티션 끝까지'로 지정했으므로 마지막 행 CHOI의 100이 된다.",
+  sum: "LAST_VALUE는 '파티션의 마지막'이 아니라 '범위의 마지막' 값을 줘요. 범위를 안 적으면 지금 행(과 같은 값의 행)에서 끝나서 L1은 200, 끝까지 적은 L2는 100이에요.",
+  why: "FIRST_VALUE와 LAST_VALUE는 프레임(값을 구할 때 같이 보는 행의 범위)의 첫 행과 마지막 행 값을 돌려줘요. 파티션 전체의 첫 값·마지막 값이 아니에요.\n\nORDER BY만 쓰고 범위를 안 적으면 범위는 '파티션 처음부터 지금 값까지'가 돼요. 시작은 늘 파티션 첫 행이라 FIRST_VALUE는 문제가 없어요. **하지만 끝이 지금 행(과 같은 값의 행)이라서, LAST_VALUE는 '파티션의 마지막 값'이 아니라 사실상 '지금 행의 값'이 나와요.** 누적 합계를 편하게 쓰려고 정한 기본값이 LAST_VALUE에는 함정이 되는 거예요.\n\nA 부서를 SAL 내림차순으로 놓으면 KIM 300, LEE 200, PARK 200, CHOI 100이에요. LEE의 F1은 범위의 첫 행 KIM이라 300이에요.\n\nLEE의 L1은 범위가 KIM부터 'SAL 200인 마지막 행'인 PARK까지라서 200이에요. L2는 범위를 '지금 행부터 파티션 끝까지'로 적었으니 마지막 행 CHOI의 100이에요.\n\n결론은 LEE 행이 (300, 200, 100)이에요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "SELECT DEPT, ENAME, SAL,\n       FIRST_VALUE(SAL) OVER (PARTITION BY DEPT    -- ② 부서별로 나눠요 (A 4행, B 2행)\n                              ORDER BY SAL DESC)   -- ③ SAL 큰 순서, 범위 = 처음 ~ 지금 값\n         AS F1,                                    -- ④ 범위의 첫 행 = 파티션 첫 행\n       LAST_VALUE(SAL)  OVER (PARTITION BY DEPT\n                              ORDER BY SAL DESC)   -- ③ 같은 기본 범위\n         AS L1,                                    -- ④ 범위의 끝 = 지금 행과 같은 값의 마지막 행\n       LAST_VALUE(SAL)  OVER (PARTITION BY DEPT ORDER BY SAL DESC\n                              ROWS BETWEEN CURRENT ROW\n                                   AND UNBOUNDED FOLLOWING)  -- ③ 지금 행 ~ 파티션 끝\n         AS L2                                     -- ④ 파티션 마지막 행의 값\n  FROM EMP;                                        -- ① 6행" },
     { t: "[원본] DEPT A를 SAL 내림차순으로", tb: { c: ["ENAME", "SAL"], r: [["KIM", 300], ["LEE", 200], ["PARK", 200], ["CHOI", 100]] } },
     { t: "[1단계] LEE 행의 프레임", tb: { c: ["컬럼", "프레임", "첫/마지막 행", "값"], r: [["F1", "KIM ~ PARK (동료 행 포함)", "첫 행 KIM", 300], ["L1", "KIM ~ PARK (동료 행 포함)", "마지막 행 PARK", 200], ["L2", "LEE ~ CHOI", "마지막 행 CHOI", 100]], hl: [1, 2] } },
-    { t: "[2단계] 전체 결과", tb: { c: ["DEPT", "ENAME", "F1", "L1", "L2"], r: [["A", "KIM", 300, 300, 100], ["A", "LEE", 300, 200, 100], ["A", "PARK", 300, 200, 100], ["A", "CHOI", 300, 100, 100], ["B", "HAN", 500, 500, 400], ["B", "YUN", 500, 400, 400]], hl: [1] } }
+    { t: "[2단계] 전체 결과", tb: { c: ["DEPT", "ENAME", "F1", "L1", "L2"], r: [["A", "KIM", 300, 300, 100], ["A", "LEE", 300, 200, 100], ["A", "PARK", 300, 200, 100], ["A", "CHOI", 300, 100, 100], ["B", "HAN", 500, 500, 400], ["B", "YUN", 500, 400, 400]], hl: [1] } },
+    { t: "의도대로 쓰려면: 어느 행에서나 파티션의 마지막 값", n: "-- 범위를 파티션 처음부터 끝까지로 적어 줘요\nSELECT DEPT, ENAME, SAL,\n       LAST_VALUE(SAL) OVER (PARTITION BY DEPT ORDER BY SAL DESC\n                             ROWS BETWEEN UNBOUNDED PRECEDING\n                                  AND UNBOUNDED FOLLOWING) AS L3\n  FROM EMP;\n-- A 부서 모든 행 → 100, B 부서 모든 행 → 400" }
   ],
   res: { c: ["DEPT", "ENAME", "F1", "L1", "L2"], r: [["A", "KIM", 300, 300, 100], ["A", "LEE", 300, 200, 100], ["A", "PARK", 300, 200, 100], ["A", "CHOI", 300, 100, 100], ["B", "HAN", 500, 500, 400], ["B", "YUN", 500, 400, 400]] },
   pg: "SELECT DEPT, ENAME, FIRST_VALUE(SAL) OVER (PARTITION BY DEPT ORDER BY SAL DESC) F1, LAST_VALUE(SAL) OVER (PARTITION BY DEPT ORDER BY SAL DESC) L1, LAST_VALUE(SAL) OVER (PARTITION BY DEPT ORDER BY SAL DESC ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) L2 FROM EMP ORDER BY DEPT, SAL DESC, ENAME",
-  ox: ["정답.", "L1의 기본 프레임을 파티션 전체로 착각한 경우다. 기본 프레임은 현재 행(과 동료 행)에서 끝난다.", "L2도 기본 프레임처럼 현재 값에서 끝난다고 본 경우다. UNBOUNDED FOLLOWING이므로 파티션 끝(CHOI)까지 간다.", "DESC를 무시하고 오름차순으로 계산한 경우다."],
-  trap: "LAST_VALUE로 '파티션의 마지막 값'을 얻으려면 ROWS(또는 RANGE) BETWEEN … AND UNBOUNDED FOLLOWING을 반드시 써야 한다. 프레임을 생략하면 대개 자기 자신(또는 동료 행)의 값이 나온다.",
-  memo: "LAST_VALUE 기본 = 현재 값 / 끝까지 = UNBOUNDED FOLLOWING"
+  ox: ["정답이에요. F1은 파티션 첫 행 KIM(300), L1은 LEE와 같은 값의 마지막 행 PARK(200), L2는 파티션 끝 CHOI(100)이에요.", "이렇게 생각하면 틀려요: '범위를 안 적으면 파티션 전체를 본다'. 범위를 안 적으면 지금 행(과 같은 값의 PARK)에서 끝나요. 그래서 L1은 100이 아니라 200이에요.", "이렇게 생각하면 틀려요: 'L2도 지금 값에서 끝난다'. L2는 UNBOUNDED FOLLOWING(파티션 끝까지)을 적었으니 CHOI의 100까지 가요.", "이렇게 생각하면 틀려요: 'DESC를 무시하고 작은 값부터 정렬한다'. 정렬 방향이 바뀌면 첫 행과 마지막 행도 바뀌어요."],
+  trap: "LAST_VALUE로 '파티션의 마지막 값'을 얻으려면 범위 끝을 UNBOUNDED FOLLOWING(파티션 끝까지)으로 꼭 적어야 해요. 안 적으면 대개 자기 자신(또는 같은 값의 행)의 값이 나와요.",
+  memo: "LAST_VALUE 기본 = 지금 값 / 끝까지 = UNBOUNDED FOLLOWING"
 },
 {
   id: "S164", s: 2, tp: "win", lv: 3, kill: true, sub: "윈도우 함수",
@@ -71,17 +79,20 @@
   sql: "SELECT ID, V,\n       LAG(V, 2, 0)   OVER (ORDER BY ID) AS A,\n       LEAD(V, 1, -1) OVER (ORDER BY ID) AS B\n  FROM T;",
   o: ["ID 2 (0, NULL), ID 5 (NULL, -1)", "ID 2 (0, -1), ID 5 (0, -1)", "ID 2 (10, NULL), ID 5 (40, -1)", "ID 2 (NULL, NULL), ID 5 (NULL, NULL)"],
   a: 0,
-  why: "LAG(V, 2, 0)은 '2행 앞의 V'를, LEAD(V, 1, -1)은 '1행 뒤의 V'를 가져온다. 세 번째 인수(default)는 가져올 행이 파티션 범위 밖이라 '존재하지 않을 때'만 쓰인다. 가져온 행이 존재하는데 그 값이 NULL이면 default가 아니라 NULL이 그대로 나온다. ID 2의 A는 2행 앞이 없어 0, B는 ID 3의 V(NULL)다. ID 5의 A는 ID 3의 V(NULL), B는 뒤 행이 없어 −1이다.",
+  sum: "세 번째 인수(기본값)는 '가져올 행이 아예 없을 때'만 쓰여요. 행은 있는데 값이 NULL이면 NULL이 그대로 나와요.",
+  why: "LAG(V, 2, 0)은 '2행 앞의 V'를, LEAD(V, 1, -1)은 '1행 뒤의 V'를 가져와요. 세 번째 인수는 기본값이에요.\n\n**기본값은 가져올 행 자체가 없을 때(맨 앞이나 맨 뒤를 넘어갈 때)만 쓰여요. 행은 있는데 그 값이 NULL이면 NULL이 그대로 나와요.**\n\n왜 그럴까요? LAG와 LEAD는 'n행 떨어진 행을 찾는' 함수예요. NULL을 다른 값으로 바꿔 주는 NVL과는 하는 일이 달라요. '행이 없음'과 '값이 비어 있음'을 구별할 수 있도록 기본값은 앞의 경우에만 써요.\n\nID 2의 A는 2행 앞(ID 0)이 없으니 기본값 0이에요. ID 2의 B는 1행 뒤인 ID 3이 있고, 그 값이 NULL이라 NULL이에요.\n\nID 5의 A는 2행 앞인 ID 3이 있고, 값이 NULL이라 NULL이에요. ID 5의 B는 뒤에 행이 없으니 기본값 −1이에요.\n\n결론은 ID 2 (0, NULL), ID 5 (NULL, −1)이에요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "SELECT ID, V,\n       LAG(V, 2, 0)   OVER (ORDER BY ID) AS A,  -- ② ID 순서로 줄 세우고 ③ 2행 앞의 V (행이 없으면 0)\n       LEAD(V, 1, -1) OVER (ORDER BY ID) AS B   -- ③ 1행 뒤의 V (행이 없으면 -1)\n  FROM T;                                       -- ① 5행, 전체가 한 묶음\n-- LAG/LEAD는 범위(프레임)를 쓰지 않고 줄 선 위치만 봐요" },
     { t: "[원본] ID 순서", tb: { c: ["ID", "V"], r: [[1, 10], [2, 20], [3, null], [4, 40], [5, 50]] } },
     { t: "[1단계] 참조할 행 찾기", tb: { c: ["ID", "LAG 2 → 행", "LEAD 1 → 행"], r: [[1, "없음", "ID 2"], [2, "없음", "ID 3"], [3, "ID 1", "ID 4"], [4, "ID 2", "ID 5"], [5, "ID 3", "없음"]] } },
-    { t: "[2단계] 값 결정 (없음 → default, 있는데 NULL → NULL)", tb: { c: ["ID", "A", "B"], r: [[1, 0, 20], [2, 0, null], [3, 10, 40], [4, 20, 50], [5, null, -1]], hl: [1, 4] } }
+    { t: "[2단계] 값 결정 (없음 → default, 있는데 NULL → NULL)", tb: { c: ["ID", "A", "B"], r: [[1, 0, 20], [2, 0, null], [3, 10, 40], [4, 20, 50], [5, null, -1]], hl: [1, 4] } },
+    { t: "의도대로 쓰려면: NULL 값도 0 / -1로 바꾸기", n: "-- '행이 없음'과 '값이 NULL'을 모두 바꾸려면 바깥에서 NVL로 감싸요\nSELECT ID, V,\n       NVL(LAG(V, 2) OVER (ORDER BY ID), 0)   AS A,\n       NVL(LEAD(V, 1) OVER (ORDER BY ID), -1) AS B\n  FROM T;\n-- ID 2 → (0, -1) / ID 5 → (0, -1)\n-- NULL 행을 건너뛰고 그 앞의 값을 원하면 Oracle의 IGNORE NULLS 옵션을 써요" }
   ],
   res: { c: ["ID", "A", "B"], r: [[1, 0, 20], [2, 0, null], [3, 10, 40], [4, 20, 50], [5, null, -1]] },
   pg: "SELECT ID, LAG(V, 2, 0) OVER (ORDER BY ID) A, LEAD(V, 1, -1) OVER (ORDER BY ID) B FROM T ORDER BY ID",
-  ox: ["정답.", "default가 NULL 값까지 바꿔 준다고 본 경우다. default는 NVL이 아니다.", "offset 2를 무시하고 바로 앞 행(1칸)을 가져온 경우다.", "default 인수를 무시한 경우다."],
-  trap: "LAG/LEAD의 default는 '행이 없을 때'의 대체값이다. 값이 NULL인 행을 건너뛰고 싶다면 Oracle의 IGNORE NULLS 옵션을 써야 한다.",
-  memo: "default = 행이 없을 때만, NULL 값은 그대로"
+  ox: ["정답이에요. ID 2는 2행 앞이 없어 0, 1행 뒤(ID 3)는 있는데 값이 NULL이라 NULL이에요. ID 5는 2행 앞(ID 3)의 NULL, 뒤 행이 없어 −1이에요.", "이렇게 생각하면 틀려요: '기본값이 NULL 값도 바꿔 준다'. 이 결과는 NVL(LAG(V, 2), 0)처럼 바깥에서 감쌌을 때 나와요. 기본값은 행이 없을 때만 써요.", "이렇게 생각하면 틀려요: '2를 무시하고 바로 앞 행을 가져온다'. 그래서 ID 2는 ID 1의 10, ID 5는 ID 4의 40이 됐어요. 두 번째 인수 2는 '2행 앞'이에요.", "이렇게 생각하면 틀려요: '행이 없으면 무조건 NULL'. 세 번째 인수를 주면 행이 없을 때 그 값(0, −1)이 나와요."],
+  trap: "LAG/LEAD의 기본값은 '행이 없을 때' 쓰는 값이에요. 값이 NULL인 행을 건너뛰고 싶으면 Oracle의 IGNORE NULLS 옵션을 써야 해요.",
+  memo: "기본값 = 행이 없을 때만, NULL 값은 그대로"
 },
 {
   id: "S165", s: 2, tp: "win", lv: 3, kill: true, sub: "윈도우 함수",
@@ -91,16 +102,19 @@
   sql: "(가) SELECT COUNT(*) FROM\n      (SELECT RANK() OVER (PARTITION BY DEPT ORDER BY SAL DESC) AS RK FROM EMP)\n     WHERE RK <= 2;\n\n(나) SELECT COUNT(*) FROM\n      (SELECT DENSE_RANK() OVER (PARTITION BY DEPT ORDER BY SAL DESC) AS RK FROM EMP)\n     WHERE RK <= 2;",
   o: ["(가) 6, (나) 7", "(가) 4, (나) 4", "(가) 6, (나) 6", "(가) 7, (나) 6"],
   a: 0,
-  why: "PARTITION BY DEPT이므로 부서마다 순위가 1부터 다시 매겨진다. RANK는 동점 다음 순위를 동점 수만큼 건너뛰고(1, 1, 3), DENSE_RANK는 건너뛰지 않는다(1, 1, 2). 10번 부서는 RANK ≤ 2가 2명, DENSE_RANK ≤ 2가 3명이다. 20번 부서는 600이 1위, 500 세 명이 공동 2위라 둘 다 4명이다.",
+  sum: "부서마다 순위를 따로 매겨요. 동점 다음을 RANK는 건너뛰고(1, 1, 3) DENSE_RANK는 안 건너뛰어서(1, 1, 2), 10번 부서에서 한 명 차이가 나요.",
+  why: "PARTITION BY DEPT는 행을 줄이지 않고, 부서마다 순위를 1부터 따로 매기게 해요.\n\n동점이 있을 때 RANK는 같은 순위를 주고 다음 순위를 동점자 수만큼 건너뛰어요(1, 1, 3). DENSE_RANK는 건너뛰지 않아요(1, 1, 2). **RANK는 '내 앞에 있는 사람 수 + 1'이고, DENSE_RANK는 '내 앞에 있는 서로 다른 값의 개수 + 1'이에요.** 그래서 동점 바로 다음 사람이 RANK로는 3위, DENSE_RANK로는 2위가 돼요.\n\n10번 부서는 500인 A, B가 공동 1위예요. C(400)는 RANK로 3위, DENSE_RANK로 2위예요. 그래서 '2위 이하'는 RANK로 2명, DENSE_RANK로 3명이에요.\n\n20번 부서는 E(600)가 1위, 500인 F, G, H가 공동 2위예요. I(200)는 RANK 5위, DENSE_RANK 3위라 둘 다 빠져요. 그래서 둘 다 4명이에요.\n\n합치면 (가)는 2 + 4 = 6, (나)는 3 + 4 = 7이에요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "SELECT COUNT(*)                                  -- ④ 남은 행 수를 세요\n  FROM (SELECT RANK() OVER (PARTITION BY DEPT    -- ① 부서별로 나눠요 (10번 4행, 20번 5행)\n                            ORDER BY SAL DESC)  -- ② 부서 안에서 SAL 큰 순서로 순위\n                 AS RK\n          FROM EMP)\n WHERE RK <= 2;                                   -- ③ 순위를 다 매긴 뒤 2위까지만 남겨요\n-- (나)는 RANK 대신 DENSE_RANK: 동점 다음 순위를 건너뛰지 않아요" },
     { t: "[원본] 부서별 SAL 내림차순", tb: { c: ["DEPT", "ENAME", "SAL"], r: [[10, "A", 500], [10, "B", 500], [10, "C", 400], [10, "D", 300], [20, "E", 600], [20, "F", 500], [20, "G", 500], [20, "H", 500], [20, "I", 200]] } },
     { t: "[1단계] 부서별 순위", tb: { c: ["DEPT", "ENAME", "SAL", "RANK", "DENSE_RANK"], r: [[10, "A", 500, 1, 1], [10, "B", 500, 1, 1], [10, "C", 400, 3, 2], [10, "D", 300, 4, 3], [20, "E", 600, 1, 1], [20, "F", 500, 2, 2], [20, "G", 500, 2, 2], [20, "H", 500, 2, 2], [20, "I", 200, 5, 3]], hl: [2] } },
-    { t: "[2단계] RK ≤ 2 건수", tb: { c: ["DEPT", "RANK ≤ 2", "DENSE_RANK ≤ 2"], r: [[10, 2, 3], [20, 4, 4], ["합계", 6, 7]] } }
+    { t: "[2단계] RK ≤ 2 건수", tb: { c: ["DEPT", "RANK ≤ 2", "DENSE_RANK ≤ 2"], r: [[10, 2, 3], [20, 4, 4], ["합계", 6, 7]] } },
+    { t: "참고: 동점과 상관없이 부서별로 딱 2명만", n: "SELECT COUNT(*)\n  FROM (SELECT ROW_NUMBER() OVER (PARTITION BY DEPT\n                                  ORDER BY SAL DESC, ENAME) AS RN\n          FROM EMP)\n WHERE RN <= 2;\n-- 4 (부서마다 2명씩, 동점은 ENAME 순으로 끊어요)" }
   ],
   res: { c: ["RANK_CNT", "DENSE_CNT"], r: [[6, 7]] },
   pg: "SELECT (SELECT COUNT(*) FROM (SELECT RANK() OVER (PARTITION BY DEPT ORDER BY SAL DESC) RK FROM EMP) X WHERE RK <= 2), (SELECT COUNT(*) FROM (SELECT DENSE_RANK() OVER (PARTITION BY DEPT ORDER BY SAL DESC) RK FROM EMP) Y WHERE RK <= 2)",
-  ox: ["정답.", "동점을 무시하고 부서별 2명씩(ROW_NUMBER처럼) 자른 경우다.", "PARTITION BY를 무시하고 전체에서 순위를 매긴 경우다(전체로는 600 1위, 500 다섯 명 2위라 둘 다 6건).", "RANK와 DENSE_RANK의 동점 처리를 서로 바꾼 경우다."],
-  trap: "부서별 상위 N명 문제에서 동점자가 있으면 RANK, DENSE_RANK, ROW_NUMBER의 건수가 모두 다를 수 있다. 특히 DENSE_RANK는 동점 '다음' 값까지 끌어들인다.",
+  ox: ["정답이에요. (가)는 10번 A, B와 20번 E, F, G, H로 6명, (나)는 10번 A, B, C와 20번 E, F, G, H로 7명이에요.", "이렇게 생각하면 틀려요: '부서마다 딱 2명씩 자른다'. 그건 ROW_NUMBER예요. RANK와 DENSE_RANK는 동점자를 모두 같은 순위로 남겨요.", "이렇게 생각하면 틀려요: '부서 구분 없이 전체에서 순위를 매긴다'. 전체로 보면 600이 1위, 500 다섯 명이 공동 2위라 둘 다 6건이 돼요. PARTITION BY가 있으면 부서마다 따로 매겨요.", "이렇게 생각하면 틀려요: 'RANK가 안 건너뛰고 DENSE_RANK가 건너뛴다'. 반대예요. 건너뛰는 쪽(1, 1, 3)이 RANK예요."],
+  trap: "부서별 상위 N명 문제에서 동점이 있으면 RANK, DENSE_RANK, ROW_NUMBER의 건수가 모두 다를 수 있어요. 특히 DENSE_RANK는 동점 '다음' 값까지 끌어들여요.",
   memo: "RANK 1,1,3 / DENSE 1,1,2 — 파티션마다 새로"
 },
 {
@@ -111,16 +125,18 @@
   sql: "SELECT NT, COUNT(*) AS CNT\n  FROM (SELECT NTILE(3) OVER (PARTITION BY DEPT ORDER BY SAL DESC) AS NT\n          FROM EMP)\n GROUP BY NT\n ORDER BY NT;",
   o: ["NT=1: 5, NT=3: 3", "NT=1: 3, NT=3: 5", "NT=1: 4, NT=3: 3", "NT=1: 5, NT=3: 1"],
   a: 0,
-  why: "NTILE(n)은 파티션의 행을 n개 버킷으로 나누되, 나누어떨어지지 않으면 남는 행을 '앞 버킷부터 하나씩' 더 준다. A 부서 7행 ÷ 3 = 몫 2, 나머지 1 → 3, 2, 2. B 부서 4행 ÷ 3 = 몫 1, 나머지 1 → 2, 1, 1. 따라서 NT=1은 3 + 2 = 5, NT=2는 2 + 1 = 3, NT=3은 2 + 1 = 3이다.",
+  sum: "NTILE은 남는 행을 앞 버킷부터 하나씩 더 줘요. A 부서는 3, 2, 2, B 부서는 2, 1, 1이라 합치면 NT=1은 5, NT=3은 3이에요.",
+  why: "NTILE(3)은 행을 정렬 순서대로 3개의 버킷(묶음)에 최대한 고르게 나눠요.\n\n**행 수가 3으로 딱 나누어떨어지지 않으면, 남는 행을 1번 버킷부터 하나씩 더 줘요.** 그래서 버킷끼리 크기 차이는 최대 1이고, 큰 버킷이 항상 앞에 와요.\n\nPARTITION BY DEPT가 있으니 부서마다 따로 나눠요. A 부서는 7행이에요. 7 = 3 × 2 + 1이라 기본 2개씩, 남는 1개는 1번 버킷에 줘서 3, 2, 2예요.\n\nB 부서는 4행이에요. 4 = 3 × 1 + 1이라 기본 1개씩, 남는 1개는 1번 버킷에 줘서 2, 1, 1이에요.\n\n바깥의 GROUP BY NT는 두 부서의 같은 버킷 번호를 합쳐요. NT=1은 3 + 2 = 5, NT=2는 2 + 1 = 3, NT=3은 2 + 1 = 3이에요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "SELECT NT, COUNT(*) AS CNT                         -- ⑤ 버킷 번호별 행 수\n  FROM (SELECT NTILE(3) OVER (PARTITION BY DEPT    -- ② 부서별로 나눠요 (A 7행, B 4행)\n                              ORDER BY SAL DESC)  -- ③ SAL 큰 순서로 3묶음\n                 AS NT\n          FROM EMP)                               -- ① 11행\n GROUP BY NT                                      -- ④ 두 부서의 같은 번호를 합쳐요\n ORDER BY NT;" },
     { t: "[원본] 부서별 행 수", tb: { c: ["DEPT", "행 수"], r: [["A", 7], ["B", 4]] } },
     { t: "[1단계] 부서별 버킷 크기 (나머지는 앞부터)", tb: { c: ["DEPT", "계산", "NT=1", "NT=2", "NT=3"], r: [["A", "7 = 2×3 + 1", 3, 2, 2], ["B", "4 = 1×3 + 1", 2, 1, 1]] } },
     { t: "[2단계] NT별 합계", tb: { c: ["NT", "CNT"], r: [[1, 5], [2, 3], [3, 3]], hl: [0, 2] } }
   ],
   res: { c: ["NT", "CNT"], r: [[1, 5], [2, 3], [3, 3]] },
   pg: "SELECT NT, COUNT(*) CNT FROM (SELECT NTILE(3) OVER (PARTITION BY DEPT ORDER BY SAL DESC) NT FROM EMP) X GROUP BY NT ORDER BY NT",
-  ox: ["정답.", "남는 행을 뒤 버킷에 몰아준다고 본 경우다(A: 2, 2, 3 / B: 1, 1, 2).", "PARTITION BY를 무시하고 11행 전체를 3등분(4, 4, 3)한 경우다.", "앞 버킷을 CEIL(행 수 ÷ 3)만큼 꽉 채운다고 본 경우다(A: 3, 3, 1 / B: 2, 2, 0)."],
-  trap: "NTILE의 버킷 크기 차이는 최대 1이다. '앞 버킷부터 하나씩 더'를 기억하면 7행 → 3, 2, 2, 10행 4등분 → 3, 3, 2, 2가 바로 나온다.",
+  ox: ["정답이에요. A(3, 2, 2)와 B(2, 1, 1)를 합치면 NT=1은 5, NT=2는 3, NT=3은 3이에요.", "이렇게 생각하면 틀려요: '남는 행은 뒤 버킷에 몰아준다'. 그러면 A는 2, 2, 3, B는 1, 1, 2가 돼요. 실제로는 앞 버킷부터 하나씩 더 줘요.", "이렇게 생각하면 틀려요: '부서 구분 없이 11행을 3등분한다'(4, 4, 3). PARTITION BY가 있으니 부서마다 나눈 뒤 합쳐야 해요.", "이렇게 생각하면 틀려요: '앞 버킷부터 꽉 채운다'. 그러면 A는 3, 3, 1, B는 2, 2, 0이 돼요. NTILE은 버킷 크기 차이를 최대 1로 맞춰요."],
+  trap: "NTILE의 버킷 크기 차이는 최대 1이에요. '앞 버킷부터 하나씩 더'만 기억하면 7행 → 3, 2, 2, 10행 4등분 → 3, 3, 2, 2가 바로 나와요.",
   memo: "NTILE 나머지 = 앞 버킷부터 +1"
 },
 {
@@ -131,16 +147,18 @@
   sql: "(가) SELECT ENAME, DEPT,\n           COUNT(*) OVER (PARTITION BY DEPT) AS CNT\n      FROM EMP;\n\n(나) SELECT DEPT, COUNT(*) AS CNT\n      FROM EMP\n     GROUP BY DEPT;",
   o: ["7, 3, 2", "3, 3, 2", "7, 3, 0", "7, 4, 1"],
   a: 0,
-  why: "윈도우 함수는 행을 줄이지 않는다. (가)는 원본 7행이 모두 남고 각 행 옆에 자기 부서의 행 수가 붙는다. GROUP BY는 그룹당 1행으로 줄인다. GROUP BY와 PARTITION BY 모두 NULL끼리는 하나의 그룹으로 묶으므로 (나)는 10, 20, NULL의 3행이고, (가)의 KANG 행 CNT는 NULL 파티션의 행 수 2다. COUNT(*)는 NULL 여부와 상관없이 행을 센다.",
+  sum: "윈도우 함수는 행을 줄이지 않아서 7행 그대로, GROUP BY는 부서별 1행씩이라 3행이에요. NULL 부서도 한 묶음이라 KANG의 CNT는 2예요.",
+  why: "윈도우 함수(OVER가 붙은 함수)는 이미 있는 행 옆에 값을 '붙이기만' 해요. GROUP BY는 같은 그룹의 행을 한 행으로 '접어요'.\n\n**그래서 (가)는 원래 7행이 그대로 남고, (나)는 서로 다른 DEPT 값의 개수만큼만 남아요.**\n\n묶음을 나눌 때는 GROUP BY도 PARTITION BY도 NULL끼리를 한 묶음으로 넣어요. NULL = NULL로 비교하면 '모름'이 되지만, 묶을 때는 '서로 구별이 안 되면 같은 묶음'으로 보기 때문이에요.\n\n부서별로 보면 10번은 KIM, LEE로 2명, 20번은 PARK, CHOI, JUNG으로 3명, NULL은 KANG, YOON으로 2명이에요.\n\n(나)는 10, 20, NULL의 3행이에요. (가)의 KANG 행은 NULL 묶음의 행 수 2를 받아요. COUNT(*)는 컬럼 값이 아니라 행 자체를 세서 NULL 묶음도 0이 되지 않아요.\n\n결론은 7, 3, 2예요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "-- (가)\nSELECT ENAME, DEPT,\n       COUNT(*) OVER (PARTITION BY DEPT) AS CNT  -- ② DEPT 값별 묶음(10, 20, NULL) ③ 묶음의 행 수를 각 행에 붙여요\n  FROM EMP;                                      -- ① 7행 → 결과도 7행\n-- (나)\nSELECT DEPT, COUNT(*) AS CNT                     -- ③ 그룹마다 1행\n  FROM EMP                                       -- ① 7행\n GROUP BY DEPT;                                  -- ② 10, 20, NULL의 3그룹" },
     { t: "[원본] 부서별 분포", tb: { c: ["DEPT", "사원"], r: [[10, "KIM, LEE"], [20, "PARK, CHOI, JUNG"], [null, "KANG, YOON"]] } },
     { t: "[1단계] (가) 윈도우 함수 — 7행 유지", tb: { c: ["ENAME", "DEPT", "CNT"], r: [["KIM", 10, 2], ["LEE", 10, 2], ["PARK", 20, 3], ["CHOI", 20, 3], ["JUNG", 20, 3], ["KANG", null, 2], ["YOON", null, 2]], hl: [5] } },
     { t: "[2단계] (나) GROUP BY — 그룹당 1행", tb: { c: ["DEPT", "CNT"], r: [[10, 2], [20, 3], [null, 2]] } }
   ],
   res: { c: ["가_행수", "나_행수", "KANG_CNT"], r: [[7, 3, 2]] },
   pg: "SELECT (SELECT COUNT(*) FROM (SELECT ENAME, COUNT(*) OVER (PARTITION BY DEPT) CNT FROM EMP) A), (SELECT COUNT(*) FROM (SELECT DEPT, COUNT(*) FROM EMP GROUP BY DEPT) B), (SELECT CNT FROM (SELECT ENAME, COUNT(*) OVER (PARTITION BY DEPT) CNT FROM EMP) C WHERE ENAME = 'KANG')",
-  ox: ["정답.", "PARTITION BY가 GROUP BY처럼 행을 합친다고 본 경우다.", "COUNT(*)를 COUNT(DEPT)와 혼동해 NULL 파티션의 행을 세지 않은 경우다.", "NULL ≠ NULL이라 NULL 행이 각각 별도 그룹이 된다고 본 경우다. 그룹핑에서는 NULL끼리 한 그룹이다."],
-  trap: "'부서별 인원을 각 사원 옆에 붙이기'는 윈도우 함수, '부서별 1줄 요약'은 GROUP BY다. 윈도우 결과 행 수 = WHERE를 통과한 원본 행 수다.",
+  ox: ["정답이에요. (가)는 행을 안 줄여서 7행, (나)는 10·20·NULL의 3행이에요. KANG은 NULL 묶음(KANG, YOON) 2명을 받아요.", "이렇게 생각하면 틀려요: 'PARTITION BY도 GROUP BY처럼 행을 합친다'. PARTITION BY는 계산할 묶음만 나누고 행은 그대로 둬요.", "이렇게 생각하면 틀려요: 'NULL 부서는 세지 않는다'. 그건 COUNT(DEPT)일 때예요. COUNT(*)는 행 자체를 세서 2가 나와요.", "이렇게 생각하면 틀려요: 'NULL은 서로 달라서 각각 따로 묶인다'. 비교할 때와 달리 묶을 때는 NULL끼리 한 묶음이에요."],
+  trap: "'부서별 인원을 각 사원 옆에 붙이기'는 윈도우 함수, '부서별 한 줄 요약'은 GROUP BY예요. 윈도우 함수 결과의 행 수는 WHERE를 통과한 원래 행 수와 같아요.",
   memo: "OVER는 행 유지, GROUP BY는 행 축소 — NULL은 한 그룹"
 },
 {
@@ -155,16 +173,19 @@
     "SELECT DEPT, SUM(SAL), RANK() OVER (ORDER BY SUM(SAL) DESC)\n  FROM EMP GROUP BY DEPT;"
   ],
   a: 0,
-  why: "윈도우(분석) 함수는 WHERE, GROUP BY, HAVING이 모두 처리된 뒤에 계산되므로 SELECT 절과 ORDER BY 절에서만 쓸 수 있다. WHERE 절에 쓰면 ORA-30483(window functions are not allowed here) 오류가 난다. 순위로 거르려면 ②처럼 인라인 뷰에서 순위를 계산한 뒤 바깥 WHERE에서 별칭으로 걸러야 한다. ②의 결과는 SAL 300 공동 1위인 KIM, PARK 2행이다(LEE는 3위). ④는 GROUP BY 후의 집계값 SUM(SAL)에 순위를 매기는 정상 문장이다.",
+  sum: "윈도우 함수는 WHERE가 끝난 뒤에 계산돼서 WHERE 안에는 쓸 수 없어요. 순위로 거르려면 ②처럼 안쪽에서 순위를 구하고 바깥에서 걸러야 해요.",
+  why: "SQL은 적힌 순서가 아니라 FROM → WHERE → GROUP BY → HAVING → SELECT → ORDER BY 순서로 처리돼요.\n\n윈도우 함수(OVER가 붙은 함수)는 SELECT 단계에서 계산돼요. **그래서 그보다 먼저 실행되는 WHERE, GROUP BY, HAVING에서는 쓸 수 없고, SELECT와 ORDER BY에서만 쓸 수 있어요.** ①처럼 WHERE에 쓰면 ORA-30483 오류가 나요.\n\n왜 그럴까요? 순위는 '거르고 남은 행들 사이의' 순위예요. 행을 거르는 중에 순위를 쓰면, 순위를 매길 대상이 아직 정해지지 않은 상태가 돼요.\n\n②는 안쪽(인라인 뷰)에서 순위를 다 매긴 뒤 바깥 WHERE에서 걸러요. 순위는 KIM 1, PARK 1(둘 다 300), LEE 3, CHOI 4라서 KIM, PARK가 나와요.\n\n③은 ORDER BY에 썼으니 괜찮아요. ④는 GROUP BY로 부서별 합계를 만든 뒤 그 합계에 순위를 매기는 거라 괜찮아요.\n\n결론적으로 오류가 나는 것은 ①이에요.",
   st: [
+    { t: "SQL 한 줄씩 읽기 (①)", n: "SELECT ENAME                                 -- ③ 여기서야 윈도우 함수를 계산할 수 있어요\n  FROM EMP                                   -- ① 4행\n WHERE RANK() OVER (ORDER BY SAL DESC) <= 2; -- ② 행을 거르는 중: 순위가 아직 없어요 → 오류" },
     { t: "[원본] 논리적 처리 순서", tb: { c: ["순서", "절", "윈도우 함수 사용"], r: [[1, "FROM", "—"], [2, "WHERE", "불가"], [3, "GROUP BY / HAVING", "불가"], [4, "SELECT (윈도우 함수 계산)", "가능"], [5, "ORDER BY", "가능"]], hl: [1] } },
     { t: "[1단계] ② 인라인 뷰의 순위", tb: { c: ["ENAME", "SAL", "RK"], r: [["KIM", 300, 1], ["PARK", 300, 1], ["LEE", 200, 3], ["CHOI", 100, 4]] } },
-    { t: "[2단계] ② 바깥 WHERE RK <= 2", tb: { c: ["ENAME"], r: [["KIM"], ["PARK"]] } }
+    { t: "[2단계] ② 바깥 WHERE RK <= 2", tb: { c: ["ENAME"], r: [["KIM"], ["PARK"]] } },
+    { t: "의도대로 쓰려면: 안쪽에서 순위, 바깥에서 거르기", n: "SELECT ENAME\n  FROM (SELECT ENAME,\n               RANK() OVER (ORDER BY SAL DESC) AS RK  -- 안쪽 SELECT에서 순위를 다 매겨요\n          FROM EMP)\n WHERE RK <= 2;                                       -- 바깥에서는 RK가 보통 컬럼이에요\n-- KIM, PARK (둘 다 300으로 공동 1위, LEE는 3위)" }
   ],
   res: { c: ["ENAME"], r: [["KIM"], ["PARK"]] },
   pg: "SELECT ENAME FROM (SELECT ENAME, RANK() OVER (ORDER BY SAL DESC) RK FROM EMP) X WHERE RK <= 2 ORDER BY ENAME",
-  ox: ["오류. 윈도우 함수는 WHERE 절에 쓸 수 없다(ORA-30483).", "정상. 인라인 뷰에서 계산한 순위를 바깥에서 거르는 표준 방법이다(결과 KIM, PARK).", "정상. 윈도우 함수는 ORDER BY 절에서 쓸 수 있다.", "정상. GROUP BY 결과(집계값)에 윈도우 함수를 적용할 수 있다."],
-  trap: "같은 SELECT 블록의 WHERE에서 SELECT 절의 순위 별칭(RK)을 쓰는 것도 안 된다(ORA-00904). 별칭은 인라인 뷰 바깥에서만 쓸 수 있다.",
+  ox: ["오류가 나요. 윈도우 함수는 WHERE보다 늦게 계산되니까 WHERE 안에는 쓸 수 없어요(ORA-30483).", "정상이에요. 안쪽에서 순위를 다 매기고 바깥에서 거르는 표준 방법이에요(결과 KIM, PARK).", "정상이에요. ORDER BY는 SELECT 다음에 실행돼서 윈도우 함수를 쓸 수 있어요.", "정상이에요. GROUP BY로 만든 부서별 합계에 순위를 매기는 거라 문제없어요."],
+  trap: "같은 SELECT 안의 WHERE에서 SELECT에 붙인 별칭(RK)을 쓰는 것도 안 돼요(ORA-00904). 별칭은 인라인 뷰 바깥에서만 쓸 수 있어요.",
   memo: "윈도우 함수 = SELECT · ORDER BY에서만 → 거르려면 인라인 뷰"
 },
 {
@@ -175,16 +196,19 @@
   sql: "SELECT REGION, PROD, SUM(AMT) AS TOT\n  FROM SALES\n GROUP BY ROLLUP (REGION, PROD);",
   o: ["8, 3", "7, 2", "6, 1", "10, 5"],
   a: 0,
-  why: "ROLLUP(REGION, PROD)은 (REGION, PROD) → (REGION) → () 세 단계로 집계한다. 데이터의 NULL REGION도 하나의 정상 그룹이므로 (NULL, A) 상세 행과 NULL 지역의 소계 행이 각각 만들어진다. 상세 4 + 지역 소계 3(서울, 부산, NULL) + 총계 1 = 8행이다. REGION이 NULL로 보이는 행은 NULL 지역 상세(50), NULL 지역 소계(50), 총계(650)의 3행이다. 원래 NULL과 소계의 NULL은 GROUPING(REGION)으로만 구별할 수 있다.",
+  sum: "데이터에 있는 NULL 지역도 하나의 지역처럼 묶여서 소계가 하나 더 생겨요. 그래서 8행이고, REGION이 비어 보이는 행은 3개예요.",
+  why: "ROLLUP(REGION, PROD)은 세 단계로 합계를 내요. (지역, 상품)별 → 지역별 소계 → 전체 총계 순서예요.\n\n**데이터에 원래 있던 NULL 지역도 하나의 정상 그룹이에요.** 그래서 'NULL 지역의 상품 A' 상세 행과 'NULL 지역 소계' 행이 따로 만들어져요.\n\n세어 볼게요. 상세는 서울·A, 서울·B, 부산·A, NULL·A로 4행이에요. 지역 소계는 서울, 부산, NULL로 3행이에요. 총계는 1행이에요. 합치면 8행이에요.\n\nREGION이 NULL로 보이는 행은 NULL 지역 상세(50), NULL 지역 소계(50), 전체 총계(650)의 3행이에요. 총계 행은 '모든 지역'이라는 뜻으로 REGION 칸을 비워 둬서 NULL로 보여요.\n\n화면만 봐서는 원래 NULL과 총계의 NULL을 구별할 수 없어요. 구별하려면 GROUPING(REGION)을 써요. 소계·총계 때문에 비운 칸이면 1, 원래 데이터면 0이에요.\n\n결론은 8, 3이에요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "SELECT REGION, PROD, SUM(AMT) AS TOT  -- ③ 단계마다 합계를 내요 (빈 칸은 NULL)\n  FROM SALES                          -- ① 4행 (REGION이 NULL인 행 1개 포함)\n GROUP BY ROLLUP (REGION, PROD);      -- ② (지역, 상품) 4 → 지역 3 → 총계 1" },
     { t: "[원본] 그룹 단계", tb: { c: ["단계", "그룹", "행 수"], r: [["(REGION, PROD)", "서울·A, 서울·B, 부산·A, NULL·A", 4], ["(REGION)", "서울, 부산, NULL", 3], ["()", "총계", 1]] } },
     { t: "[1단계] 전체 결과와 GROUPING 값", tb: { c: ["REGION", "PROD", "TOT", "GROUPING(REGION)", "GROUPING(PROD)"], r: [["부산", "A", 300, 0, 0], ["부산", null, 300, 0, 1], ["서울", "A", 100, 0, 0], ["서울", "B", 200, 0, 0], ["서울", null, 300, 0, 1], [null, "A", 50, 0, 0], [null, null, 50, 0, 1], [null, null, 650, 1, 1]], hl: [5, 6, 7] } },
-    { t: "[2단계] 집계", tb: { c: ["전체 행", "REGION이 NULL인 행"], r: [[8, 3]] } }
+    { t: "[2단계] 집계", tb: { c: ["전체 행", "REGION이 NULL인 행"], r: [[8, 3]] } },
+    { t: "의도대로 쓰려면: GROUPING으로 소계와 원래 NULL 구별하기", n: "SELECT CASE WHEN GROUPING(REGION) = 1 THEN '총계'\n            ELSE NVL(REGION, '(미지정)') END AS R,\n       CASE WHEN GROUPING(PROD) = 1 THEN '소계' ELSE PROD END AS P,\n       SUM(AMT) AS TOT\n  FROM SALES\n GROUP BY ROLLUP (REGION, PROD);\n-- 부산 A 300 / 부산 소계 300 / 서울 A 100 / 서울 B 200 / 서울 소계 300\n-- (미지정) A 50 / (미지정) 소계 50 / 총계 소계 650" }
   ],
   res: { c: ["전체", "REGION_NULL"], r: [[8, 3]] },
   pg: "SELECT COUNT(*), COUNT(*) FILTER (WHERE REGION IS NULL) FROM (SELECT REGION, PROD, SUM(AMT) TOT FROM SALES GROUP BY ROLLUP (REGION, PROD)) X",
-  ox: ["정답.", "NULL 지역의 상세 행은 셌지만 NULL 지역의 소계 행을 빠뜨린 경우다.", "NULL REGION 데이터를 집계에서 빠지는 것으로 본 경우다. GROUP BY는 NULL도 한 그룹으로 묶는다.", "CUBE(REGION, PROD)의 결과(상품별 소계 2행 추가)다."],
-  trap: "'REGION이 NULL인 행 = 소계·총계'라고 단정하면 안 된다. 원본 데이터에 NULL이 있으면 GROUPING() 함수(소계로 생긴 NULL이면 1)로 구별해야 한다.",
+  ox: ["정답이에요. 상세 4 + 지역 소계 3 + 총계 1 = 8행이에요. REGION이 비어 보이는 건 NULL 지역 상세, NULL 지역 소계, 총계의 3행이에요.", "이렇게 생각하면 틀려요: 'NULL 지역은 상세 행만 있고 소계는 없다'. NULL 지역도 정상 그룹이라 소계가 따로 생겨요.", "이렇게 생각하면 틀려요: 'NULL 지역 데이터는 합계에서 빠진다'. GROUP BY는 NULL도 한 그룹으로 묶어요.", "이렇게 생각하면 틀려요: 'ROLLUP도 상품별 소계를 만든다'. 상품별 소계 2행이 더 생기는 건 CUBE예요."],
+  trap: "'REGION이 NULL인 행 = 소계나 총계'라고 단정하면 안 돼요. 원래 데이터에 NULL이 있으면 GROUPING() 함수로 구별해야 해요(소계 때문에 비운 칸이면 1).",
   memo: "데이터 NULL도 그룹 1개 → 소계도 1개 더"
 },
 {
@@ -195,16 +219,18 @@
   sql: "(가) SELECT CASE WHEN GROUPING(REGION) = 1 THEN 'ALL'\n                ELSE NVL(REGION, 'N/A') END AS R,\n           SUM(AMT) AS S\n      FROM SALES\n     GROUP BY ROLLUP (REGION);\n\n(나) SELECT NVL(REGION, 'ALL') AS R,\n           SUM(AMT) AS S\n      FROM SALES\n     GROUP BY ROLLUP (REGION);",
   o: ["(가) 1000 / (나) 400, 1000", "(가) 1000 / (나) 1000", "(가) 400, 1000 / (나) 400, 1000", "(가) 1000 / (나) 1400"],
   a: 0,
-  why: "ROLLUP(REGION)의 결과는 EAST 300, WEST 300, NULL 지역 400, 총계 1000의 4행이다. GROUPING(REGION)은 'ROLLUP이 만든 소계·총계 행'에서만 1을 돌려주므로 (가)는 총계 행만 'ALL'이 되고, 데이터의 NULL 지역은 'N/A'가 된다. (나)의 NVL은 원래 NULL과 총계의 NULL을 구별하지 못해 400 행과 1000 행이 둘 다 'ALL'로 표시된다. 라벨이 같아져도 이미 집계된 행이 다시 합쳐지지는 않는다.",
+  sum: "GROUPING은 '총계 때문에 비운 칸'만 알아봐서 (가)는 총계 1000만 'ALL'이에요. NVL은 원래 NULL도 같이 바꿔서 (나)는 400과 1000이 둘 다 'ALL'이에요.",
+  why: "먼저 ROLLUP(REGION)의 결과를 볼게요. EAST 300, WEST 300, NULL 지역 400, 총계 1000의 4행이에요. NULL 지역 행과 총계 행은 둘 다 REGION이 NULL이에요.\n\nGROUPING(REGION)은 'ROLLUP이 소계·총계를 만들면서 비운 칸'일 때만 1이에요. 원래 데이터의 NULL에는 0이에요. **그래서 (가)는 총계 행만 'ALL'이 되고, 원래 NULL 지역은 NVL에 걸려 'N/A'가 돼요.**\n\nNVL은 'NULL이면 바꿔라'만 할 뿐, 그 NULL이 어디서 왔는지는 몰라요. 그래서 (나)는 NULL 지역(400)과 총계(1000)를 모두 'ALL'로 바꿔요.\n\n라벨이 똑같이 'ALL'이 돼도 두 행이 다시 합쳐지지는 않아요. 합계는 이미 GROUP BY 단계에서 끝났고, SELECT의 NVL은 보이는 글자만 바꾸기 때문이에요.\n\n결론은 (가) 1000 / (나) 400, 1000이에요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "-- (가)\nSELECT CASE WHEN GROUPING(REGION) = 1 THEN 'ALL'  -- ③ 총계 때문에 비운 칸이면 'ALL'\n            ELSE NVL(REGION, 'N/A') END AS R,     --    원래 NULL이면 'N/A'\n       SUM(AMT) AS S\n  FROM SALES                                      -- ① 4행\n GROUP BY ROLLUP (REGION);                        -- ② EAST, WEST, NULL, 총계의 4행\n-- (나)\nSELECT NVL(REGION, 'ALL') AS R,                   -- ③ NULL이면 출처와 상관없이 'ALL'\n       SUM(AMT) AS S\n  FROM SALES\n GROUP BY ROLLUP (REGION);" },
     { t: "[원본] ROLLUP(REGION) 결과", tb: { c: ["REGION", "S", "GROUPING(REGION)"], r: [["EAST", 300, 0], ["WEST", 300, 0], [null, 400, 0], [null, 1000, 1]] } },
     { t: "[1단계] (가) GROUPING 기준 라벨", tb: { c: ["R", "S"], r: [["EAST", 300], ["WEST", 300], ["N/A", 400], ["ALL", 1000]], hl: [3] } },
     { t: "[2단계] (나) NVL 기준 라벨", tb: { c: ["R", "S"], r: [["EAST", 300], ["WEST", 300], ["ALL", 400], ["ALL", 1000]], hl: [2, 3] } }
   ],
   res: { c: ["쿼리", "R", "S"], r: [["가", "ALL", 1000], ["나", "ALL", 400], ["나", "ALL", 1000]] },
   pg: "SELECT Q, R, S FROM (SELECT '가' Q, CASE WHEN GROUPING(REGION) = 1 THEN 'ALL' ELSE COALESCE(REGION, 'N/A') END R, SUM(AMT) S FROM SALES GROUP BY ROLLUP (REGION) UNION ALL SELECT '나', COALESCE(REGION, 'ALL'), SUM(AMT) FROM SALES GROUP BY ROLLUP (REGION)) X WHERE R = 'ALL' ORDER BY Q, S",
-  ox: ["정답.", "(나)의 NVL이 데이터의 NULL 지역까지 'ALL'로 바꾼다는 점을 놓친 경우다.", "GROUPING이 데이터 NULL에도 1을 돌려준다고 본 경우다.", "같은 라벨 'ALL'의 두 행이 다시 합쳐진다고 본 경우다. 라벨은 표시만 바꾼다."],
-  trap: "소계 라벨은 NVL이 아니라 GROUPING(컬럼) = 1 조건(CASE 또는 DECODE)으로 붙여야 안전하다. 그룹 컬럼에 NULL 데이터가 있으면 NVL은 틀린 라벨을 만든다.",
+  ox: ["정답이에요. (가)는 GROUPING이 1인 총계만 'ALL'(1000)이고, (나)는 NVL이 NULL 지역(400)과 총계(1000)를 모두 'ALL'로 바꿔요.", "이렇게 생각하면 틀려요: 'NVL도 총계만 바꾼다'. NVL은 원래 데이터의 NULL 지역도 'ALL'로 바꿔요.", "이렇게 생각하면 틀려요: 'GROUPING도 원래 NULL에 1을 준다'. GROUPING은 ROLLUP이 비운 칸에만 1을 줘요.", "이렇게 생각하면 틀려요: '라벨이 같아지면 두 행이 다시 합쳐진다'(400 + 1000 = 1400). 라벨은 보이는 글자만 바꾸고 합계는 그대로예요."],
+  trap: "소계 라벨은 NVL이 아니라 GROUPING(컬럼) = 1 조건(CASE나 DECODE)으로 붙여야 안전해요. 묶는 컬럼에 원래 NULL이 있으면 NVL은 틀린 라벨을 만들어요.",
   memo: "소계 판별은 GROUPING() — NVL은 데이터 NULL과 혼동"
 },
 {
@@ -215,15 +241,17 @@
   sql: "(가) SELECT A, B, SUM(V) FROM T GROUP BY CUBE (A, B);\n(나) SELECT A, B, SUM(V) FROM T GROUP BY GROUPING SETS (A, B);\n(다) SELECT A, B, SUM(V) FROM T GROUP BY GROUPING SETS ((A, B), ());",
   o: ["11, 6, 5", "10, 5, 4", "11, 7, 5", "8, 6, 5"],
   a: 0,
-  why: "먼저 각 그룹 단위의 서로 다른 값 개수를 센다. (A, B) 조합은 X·P, X·Q, Y·P, Z·NULL의 4개, A는 X, Y, Z의 3개, B는 P, Q, NULL의 3개다(NULL도 하나의 그룹). CUBE(A, B) = (A, B) + (A) + (B) + () = 4 + 3 + 3 + 1 = 11행. GROUPING SETS(A, B)는 나열한 집합만 만들고 총계를 자동으로 붙이지 않으므로 3 + 3 = 6행. GROUPING SETS((A, B), ())는 4 + 1 = 5행이다.",
+  sum: "묶는 기준마다 서로 다른 값이 몇 개인지 세서 더하면 돼요. NULL도 값 하나로 세고, GROUPING SETS는 적은 것만 만들어요.",
+  why: "행 수 문제는 '묶는 기준마다 서로 다른 값이 몇 개인지'를 먼저 세고 더하면 풀려요.\n\n(A, B) 조합은 X·P, X·Q, Y·P, Z·NULL로 4개예요(Y·P는 두 행이지만 한 묶음이에요). A만 보면 X, Y, Z로 3개, B만 보면 P, Q, NULL로 3개예요. **NULL도 하나의 값으로 묶여서 따로 한 행이 돼요.**\n\nCUBE(A, B)는 가능한 모든 조합을 만들어요. (A, B), (A), (B), ()(전체 총계)라서 4 + 3 + 3 + 1 = 11행이에요.\n\nGROUPING SETS는 괄호 안에 적은 기준만 만들어요. 총계를 알아서 붙여 주지 않아요. (나)는 (A)와 (B)만 적었으니 3 + 3 = 6행이에요.\n\n(다)는 (A, B)와 ()를 적었으니 4 + 1 = 5행이에요. 총계를 원하면 이렇게 ()를 직접 적어야 해요.\n\n결론은 11, 6, 5예요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "SELECT A, B, SUM(V) FROM T GROUP BY CUBE (A, B);\n-- (가) (A,B) 4 + (A) 3 + (B) 3 + () 1 = 11\nSELECT A, B, SUM(V) FROM T GROUP BY GROUPING SETS (A, B);\n-- (나) 적은 것만: (A) 3 + (B) 3 = 6, 총계 없음\nSELECT A, B, SUM(V) FROM T GROUP BY GROUPING SETS ((A, B), ());\n-- (다) (A,B) 4 + () 1 = 5" },
     { t: "[원본] 그룹 단위별 개수", tb: { c: ["그룹 단위", "값", "개수"], r: [["(A, B)", "X·P, X·Q, Y·P, Z·NULL", 4], ["(A)", "X, Y, Z", 3], ["(B)", "P, Q, NULL", 3], ["()", "총계", 1]] } },
     { t: "[1단계] 각 SQL이 만드는 그룹 단위", tb: { c: ["SQL", "그룹 단위", "행 수"], r: [["(가) CUBE(A, B)", "(A,B) (A) (B) ()", "4+3+3+1 = 11"], ["(나) GROUPING SETS(A, B)", "(A) (B)", "3+3 = 6"], ["(다) GROUPING SETS((A,B), ())", "(A,B) ()", "4+1 = 5"]] } }
   ],
   res: { c: ["가", "나", "다"], r: [[11, 6, 5]] },
   pg: "SELECT (SELECT COUNT(*) FROM (SELECT A, B, SUM(V) FROM T GROUP BY CUBE (A, B)) X), (SELECT COUNT(*) FROM (SELECT A, B, SUM(V) FROM T GROUP BY GROUPING SETS (A, B)) Y), (SELECT COUNT(*) FROM (SELECT A, B, SUM(V) FROM T GROUP BY GROUPING SETS ((A, B), ())) Z)",
-  ox: ["정답.", "B가 NULL인 데이터를 그룹에서 빠지는 것으로 본 경우다. NULL도 하나의 그룹이다.", "GROUPING SETS에도 총계가 자동으로 붙는다고 본 경우다. 총계는 ()를 명시해야 생긴다.", "CUBE를 ROLLUP(A, B)처럼 (A, B) → (A) → ()로만 계산한 경우다."],
-  trap: "행 수 문제는 '그룹 단위별 서로 다른 값 개수'를 먼저 구하고 더하면 된다. 데이터에 NULL이 있으면 그것도 값 하나로 센다.",
+  ox: ["정답이에요. CUBE는 4 + 3 + 3 + 1 = 11, GROUPING SETS(A, B)는 3 + 3 = 6, GROUPING SETS((A, B), ())는 4 + 1 = 5예요.", "이렇게 생각하면 틀려요: 'B가 NULL인 데이터는 묶음에서 빠진다'. NULL도 하나의 묶음이 돼서 한 행으로 나와요.", "이렇게 생각하면 틀려요: 'GROUPING SETS에도 총계가 자동으로 붙는다'. 총계는 ()를 직접 적어야 생겨요.", "이렇게 생각하면 틀려요: 'CUBE도 ROLLUP처럼 (A, B) → (A) → ()만 만든다'. CUBE는 B만으로 묶은 소계(B)까지 모든 조합을 만들어요."],
+  trap: "행 수 문제는 '묶는 기준별 서로 다른 값 개수'를 먼저 구하고 더하면 돼요. 데이터에 NULL이 있으면 그것도 값 하나로 세요.",
   memo: "CUBE = 모든 조합, GROUPING SETS = 쓴 것만(총계는 ())"
 },
 {
@@ -234,16 +262,18 @@
   sql: "SELECT A, B, C, SUM(V) AS TOT\n  FROM T\n GROUP BY ROLLUP ((A, B), C);",
   o: ["8, 30", "10, 30", "8, 60", "7, 30"],
   a: 0,
-  why: "ROLLUP 안에서 괄호로 묶은 (A, B)는 하나의 단위로 취급되어 따로 쪼개지지 않는다. 따라서 그룹 단위는 (A, B, C) → (A, B) → ()의 3단계뿐이다. (A, B, C) 4행 + (A, B) 소계 3행(1·x, 1·y, 2·x) + 총계 1행 = 8행이다. A = 1, B = 'x'의 소계는 10 + 20 = 30이다.",
+  sum: "괄호로 묶은 (A, B)는 한 덩어리라서 따로 쪼개지지 않아요. 그래서 A만의 소계가 없고 8행, A=1·B='x' 소계는 30이에요.",
+  why: "ROLLUP은 오른쪽 컬럼부터 하나씩 빼면서 소계를 만들어요. 그런데 괄호로 묶은 컬럼들은 한 덩어리로 같이 빠지고 같이 남아요.\n\n**ROLLUP((A, B), C)에서 (A, B)는 한 덩어리라서 묶는 기준은 (A, B, C) → (A, B) → () 세 단계뿐이에요.** 괄호가 없는 ROLLUP(A, B, C)였다면 (A) 단계가 하나 더 생겼을 거예요.\n\n세어 볼게요. (A, B, C) 상세는 데이터 4행 그대로 4행이에요. (A, B) 소계는 1·x, 1·y, 2·x로 3행이에요. 총계는 1행이에요. 합치면 8행이에요.\n\nA = 1, B = 'x', C가 NULL인 행은 (A, B) 소계 행이에요. C가 p(10)와 q(20)인 두 행을 더해서 30이에요.\n\n결론은 8, 30이에요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "SELECT A, B, C, SUM(V) AS TOT  -- ③ 단계별 합계 (빠진 컬럼 칸은 NULL)\n  FROM T                       -- ① 4행\n GROUP BY ROLLUP ((A, B), C);  -- ② (A,B,C) 4 → (A,B) 3 → () 1, (A) 단독 단계는 없어요" },
     { t: "[원본] 그룹 단위 비교", tb: { c: ["표현", "그룹 단위"], r: [["ROLLUP((A, B), C)", "(A,B,C) → (A,B) → ()"], ["ROLLUP(A, B, C)", "(A,B,C) → (A,B) → (A) → ()"]] } },
     { t: "[1단계] 결과", tb: { c: ["A", "B", "C", "TOT", "단계"], r: [[1, "x", "p", 10, "상세"], [1, "x", "q", 20, "상세"], [1, "x", null, 30, "(A,B) 소계"], [1, "y", "p", 30, "상세"], [1, "y", null, 30, "(A,B) 소계"], [2, "x", "p", 40, "상세"], [2, "x", null, 40, "(A,B) 소계"], [null, null, null, 100, "총계"]], hl: [2] } },
     { t: "[2단계] 행 수", tb: { c: ["상세", "(A,B) 소계", "총계", "합계"], r: [[4, 3, 1, 8]] } }
   ],
   res: { c: ["행수", "TOT"], r: [[8, 30]] },
   pg: "SELECT (SELECT COUNT(*) FROM (SELECT A, B, C, SUM(V) FROM T GROUP BY ROLLUP ((A, B), C)) X), (SELECT SUM(V) FROM T GROUP BY ROLLUP ((A, B), C) HAVING A = 1 AND B = 'x' AND GROUPING(C) = 1)",
-  ox: ["정답.", "괄호를 무시하고 ROLLUP(A, B, C)로 계산해 A 단독 소계 2행이 더 생긴 경우다.", "(A, B) 소계를 A = 1 전체(10 + 20 + 30)의 소계로 착각한 경우다. 이 SQL에는 A 단독 소계가 없다.", "ROLLUP의 맨 끝 총계 행을 빠뜨린 경우다."],
-  trap: "ROLLUP(A, (B, C))처럼 괄호 위치가 바뀌면 그룹 단위는 (A,B,C) → (A) → ()가 된다. 괄호 안은 '함께 붙었다 함께 떨어지는' 한 덩어리다.",
+  ox: ["정답이에요. 상세 4 + (A, B) 소계 3 + 총계 1 = 8행이고, 1·x 소계는 10 + 20 = 30이에요.", "이렇게 생각하면 틀려요: '괄호는 상관없다'. 괄호를 무시하면 ROLLUP(A, B, C)가 돼서 A만의 소계 2행이 더 생겨 10행이 돼요.", "이렇게 생각하면 틀려요: '그 행은 A = 1 전체의 소계다'(10 + 20 + 30 = 60). 이 SQL에는 A만으로 묶은 소계가 없어요. B = 'x'까지 같은 행만 더해요.", "이렇게 생각하면 틀려요: '총계는 안 생긴다'. ROLLUP은 마지막에 항상 전체 총계 ()를 만들어요."],
+  trap: "ROLLUP(A, (B, C))처럼 괄호 위치가 바뀌면 묶는 기준은 (A, B, C) → (A) → ()가 돼요. 괄호 안은 '같이 붙고 같이 떨어지는' 한 덩어리예요.",
   memo: "ROLLUP 괄호 = 한 덩어리로 소계"
 },
 {
@@ -254,16 +284,19 @@
   sql: "SELECT DEPT, JOB, SUM(SAL) AS SUM_SAL\n  FROM EMP\n GROUP BY ROLLUP (DEPT), JOB;",
   o: ["6, 800", "7, 500", "8, 1250", "7, 1250"],
   a: 0,
-  why: "GROUP BY ROLLUP(DEPT), JOB은 ROLLUP 밖에 쓴 JOB을 항상 고정하고, ROLLUP 안의 DEPT만 뺐다 넣었다 한다. 그룹 단위는 (DEPT, JOB)과 (JOB) 두 가지뿐이며, JOB까지 빠지는 전체 총계 ()는 만들어지지 않는다. 쓰인 순서가 ROLLUP이 먼저라도 소계 기준은 '괄호 밖 컬럼'이다. (DEPT, JOB) 4행 + 직무별 소계 2행(CLERK 450, MGR 800) = 6행이고, 최댓값은 MGR 소계 800이다.",
+  sum: "ROLLUP 밖에 쓴 JOB은 모든 행에 항상 남아요. 그래서 직무별 소계만 생기고 전체 총계는 없어서 6행, 최댓값은 MGR 소계 800이에요.",
+  why: "GROUP BY에 ROLLUP과 보통 컬럼을 섞어 쓰면, ROLLUP 밖의 컬럼은 모든 단계에 항상 붙어 있어요. ROLLUP 안의 컬럼만 넣었다 뺐다 해요.\n\n**그래서 GROUP BY ROLLUP(DEPT), JOB의 묶는 기준은 (DEPT, JOB)과 (JOB) 두 가지뿐이에요.** JOB까지 빠지는 전체 총계는 만들어지지 않아요. ROLLUP이 앞에 적혀 있어도 마찬가지예요.\n\n(DEPT, JOB) 상세는 10·CLERK 100, 10·MGR 300, 20·CLERK 350(200 + 150), 30·MGR 500으로 4행이에요.\n\n(JOB) 소계는 CLERK가 100 + 350 = 450, MGR가 300 + 500 = 800으로 2행이에요.\n\n합치면 6행이고, 가장 큰 값은 MGR 소계 800이에요. 전체 합 1250은 총계 행이 없으니 나오지 않아요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "SELECT DEPT, JOB, SUM(SAL) AS SUM_SAL  -- ③ 단계별 합계\n  FROM EMP                             -- ① 5행\n GROUP BY ROLLUP (DEPT), JOB;          -- ② JOB은 항상 고정: (DEPT, JOB) 4행 + (JOB) 2행, 총계 없음" },
     { t: "[원본] 그룹 단위", tb: { c: ["표현", "그룹 단위"], r: [["GROUP BY ROLLUP(DEPT), JOB", "(DEPT, JOB), (JOB)"], ["GROUP BY DEPT, ROLLUP(JOB)", "(DEPT, JOB), (DEPT)"], ["GROUP BY ROLLUP(DEPT, JOB)", "(DEPT, JOB), (DEPT), ()"]], hl: [0] } },
     { t: "[1단계] 결과", tb: { c: ["DEPT", "JOB", "SUM_SAL"], r: [[10, "CLERK", 100], [20, "CLERK", 350], [null, "CLERK", 450], [10, "MGR", 300], [30, "MGR", 500], [null, "MGR", 800]], hl: [2, 5] } },
-    { t: "[2단계] 정리", tb: { c: ["행 수", "최댓값"], r: [[6, 800]] }, n: "전체 총계(1250) 행은 없다." }
+    { t: "[2단계] 정리", tb: { c: ["행 수", "최댓값"], r: [[6, 800]] }, n: "전체 총계(1250) 행은 없다." },
+    { t: "의도대로 쓰려면: 직무 소계에 전체 총계까지", n: "SELECT DEPT, JOB, SUM(SAL) AS SUM_SAL\n  FROM EMP\n GROUP BY GROUPING SETS ((DEPT, JOB), (JOB), ());\n-- 7행, 마지막 총계 행 1250이 더 생겨요" }
   ],
   res: { c: ["행수", "최댓값"], r: [[6, 800]] },
   pg: "SELECT COUNT(*), MAX(SUM_SAL) FROM (SELECT DEPT, JOB, SUM(SAL) SUM_SAL FROM EMP GROUP BY ROLLUP (DEPT), JOB) X",
-  ox: ["정답.", "GROUP BY DEPT, ROLLUP(JOB)처럼 부서별 소계(최대 500)가 생긴다고 본 경우다. 소계 기준은 ROLLUP 밖의 JOB이다.", "ROLLUP(DEPT, JOB)처럼 부서 소계와 총계가 모두 생긴다고 본 경우다.", "ROLLUP이면 항상 전체 총계가 붙는다고 보아 직무 소계 2행에 총계 1행을 더한 경우다."],
-  trap: "ROLLUP 바깥에 쓴 컬럼은 모든 결과 행에 항상 값으로 남으므로 전체 총계가 생기지 않는다. 바깥 컬럼이 ROLLUP 앞에 있든 뒤에 있든 마찬가지다.",
+  ox: ["정답이에요. (DEPT, JOB) 4행 + 직무별 소계 2행(CLERK 450, MGR 800) = 6행이고, 최댓값은 800이에요.", "이렇게 생각하면 틀려요: '부서별 소계가 생긴다'(GROUP BY DEPT, ROLLUP(JOB)인 경우). 이 SQL은 ROLLUP 밖의 JOB이 고정이라 직무별 소계가 생겨요.", "이렇게 생각하면 틀려요: 'ROLLUP(DEPT, JOB)과 같다'. 그러면 부서 소계 3행과 총계 1행이 생겨 8행이 되지만, 이 SQL은 그렇지 않아요.", "이렇게 생각하면 틀려요: 'ROLLUP이면 항상 총계가 붙는다'. ROLLUP 밖에 JOB이 있어서 JOB이 빠지는 총계는 만들어지지 않아요."],
+  trap: "ROLLUP 밖에 쓴 컬럼은 모든 결과 행에 값으로 남아서 전체 총계가 생기지 않아요. 밖의 컬럼이 ROLLUP 앞에 있든 뒤에 있든 똑같아요.",
   memo: "ROLLUP 밖 컬럼 = 항상 고정, 총계 없음"
 },
 {
@@ -274,16 +307,19 @@
   sql: "SELECT DEPT,\n       COUNT(AMT) AS C1,\n       COUNT(*)   AS C2,\n       AVG(AMT)   AS AV\n  FROM SALES\n GROUP BY ROLLUP (DEPT);",
   o: ["3, 5, 200", "5, 5, 120", "3, 5, 120", "3, 5, 175"],
   a: 0,
-  why: "ROLLUP의 총계 행은 '부서 소계들을 다시 집계'한 것이 아니라 원본 전체 행을 대상으로 집계 함수를 다시 적용한 값이다. COUNT(AMT)는 NULL을 빼고 3, COUNT(*)는 행 수 5, AVG(AMT)는 NULL을 뺀 (100 + 200 + 300) ÷ 3 = 200이다.",
+  sum: "총계 행은 소계를 다시 합친 게 아니라 원래 5행 전체로 다시 계산해요. NULL은 COUNT(AMT)와 AVG에서 빠져서 3, 5, 200이에요.",
+  why: "ROLLUP의 총계 행은 '부서 소계들의 평균'처럼 소계를 다시 계산한 값이 아니에요. **원래 데이터 전체(5행)에 집계 함수를 처음부터 다시 적용한 값이에요.**\n\n그리고 집계 함수는 NULL을 '없는 값'으로 보고 빼고 계산해요. 단, COUNT(*)는 값이 아니라 행 자체를 세서 NULL 행도 세요.\n\nAMT 값은 100, NULL, 200, 300, NULL이에요. COUNT(AMT)는 NULL 두 개를 빼고 3이에요. COUNT(*)는 행이 5개라 5예요.\n\nAVG(AMT)는 NULL을 뺀 세 값의 평균이에요. (100 + 200 + 300) ÷ 3 = 200이에요. NULL을 0으로 보고 5로 나누면 안 돼요.\n\n부서 평균(A 100, B 250)을 다시 평균 내면 175가 되지만, 부서마다 행 수가 달라서 진짜 전체 평균과 달라요.\n\n결론은 3, 5, 200이에요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "SELECT DEPT,\n       COUNT(AMT) AS C1,      -- ③ NULL이 아닌 AMT 개수\n       COUNT(*)   AS C2,      -- ③ 행 개수 (NULL 행도 셈)\n       AVG(AMT)   AS AV       -- ③ NULL을 뺀 값들의 평균\n  FROM SALES                  -- ① 5행 (AMT NULL 2개)\n GROUP BY ROLLUP (DEPT);      -- ② A, B 소계 + 총계: 총계는 5행 전체로 다시 계산" },
     { t: "[원본] 부서별 값", tb: { c: ["DEPT", "AMT 값"], r: [["A", "100, NULL"], ["B", "200, 300, NULL"]] } },
     { t: "[1단계] ROLLUP 결과", tb: { c: ["DEPT", "C1", "C2", "AV"], r: [["A", 1, 2, 100], ["B", 2, 3, 250], [null, 3, 5, 200]], hl: [2] } },
-    { t: "[2단계] 오답 계산 비교", tb: { c: ["계산 방식", "AV"], r: [["600 ÷ 3 (NULL 제외, 정답)", 200], ["600 ÷ 5 (NULL을 0으로)", 120], ["(100 + 250) ÷ 2 (평균의 평균)", 175]] } }
+    { t: "[2단계] 오답 계산 비교", tb: { c: ["계산 방식", "AV"], r: [["600 ÷ 3 (NULL 제외, 정답)", 200], ["600 ÷ 5 (NULL을 0으로)", 120], ["(100 + 250) ÷ 2 (평균의 평균)", 175]] } },
+    { t: "참고: NULL을 0으로 쳐서 평균을 내고 싶다면", n: "SELECT DEPT, AVG(NVL(AMT, 0)) AS AV\n  FROM SALES\n GROUP BY ROLLUP (DEPT);\n-- A 50 / B 166.67 / 총계 120 (600 ÷ 5)" }
   ],
   res: { c: ["DEPT", "C1", "C2", "AV"], r: [["A", 1, 2, 100], ["B", 2, 3, 250], [null, 3, 5, 200]] },
   pg: "SELECT DEPT, COUNT(AMT), COUNT(*), AVG(AMT) FROM SALES GROUP BY ROLLUP (DEPT) ORDER BY GROUPING(DEPT), DEPT",
-  ox: ["정답.", "집계 함수가 NULL을 0으로 보고 센다고 착각한 경우다.", "AVG의 분모를 COUNT(*)로 잡은 경우다. AVG는 NULL을 뺀 행 수로 나눈다.", "총계의 평균을 부서 평균(100, 250)의 평균으로 계산한 경우다."],
-  trap: "총계 행의 AVG ≠ 소계 AVG들의 평균이다. 그룹 크기가 다르면 값이 달라진다. 총계는 항상 '원본 전체'에 집계 함수를 다시 적용한 결과다.",
+  ox: ["정답이에요. 총계는 5행 전체로 다시 계산해요. COUNT(AMT) 3, COUNT(*) 5, 평균은 600 ÷ 3 = 200이에요.", "이렇게 생각하면 틀려요: 'NULL을 0으로 보고 센다'. COUNT(AMT)와 AVG는 NULL을 아예 빼고 계산해요.", "이렇게 생각하면 틀려요: '평균은 합계를 전체 행 수로 나눈다'(600 ÷ 5 = 120). AVG는 NULL을 뺀 3개로 나눠요.", "이렇게 생각하면 틀려요: '총계 평균은 부서 평균들의 평균이다'((100 + 250) ÷ 2 = 175). 총계는 원래 값 전체로 다시 계산해요."],
+  trap: "총계 행의 평균은 소계 평균들의 평균이 아니에요. 그룹 크기가 다르면 값이 달라져요. 총계는 항상 '원래 데이터 전체'로 다시 계산한 결과예요.",
   memo: "총계 = 원본 전체 재집계, AVG 분모는 NULL 제외"
 },
 {
@@ -294,15 +330,17 @@
   sql: "SELECT LEVEL, NM\n  FROM ORG\n START WITH PID IS NULL\nCONNECT BY PRIOR ID = PID\n ORDER SIBLINGS BY NM DESC;",
   o: ["DEV → WEB → APP → IOS", "DEV → NET → ADS → WEB", "DEV → APP → IOS → WEB", "NET → MKT → IOS → DEV"],
   a: 0,
-  why: "START WITH PID IS NULL을 만족하는 ROOT와 OPS가 모두 루트가 되어 트리가 2개 생긴다. 계층형 질의는 깊이 우선(한 가지를 끝까지 내려간 뒤 다음 형제)으로 출력하고, ORDER SIBLINGS BY NM DESC는 루트끼리, 그리고 같은 부모를 둔 형제끼리만 이름 내림차순으로 정렬한다. 루트는 ROOT > OPS, ROOT의 자식은 MKT > DEV, DEV의 자식은 WEB > APP 순이다.",
+  sum: "계층형 질의는 한 가지를 끝까지 내려간 뒤 다음 형제로 가요. 형제끼리 이름 내림차순이라 ROOT → MKT → ADS → DEV → WEB → APP → IOS 순서예요.",
+  why: "계층형 질의는 트리를 '깊이 우선'으로 출력해요. 한 가지를 맨 아래까지 다 내려간 다음에야 옆 형제로 넘어가요.\n\nORDER SIBLINGS BY NM DESC는 같은 부모를 둔 형제끼리만 이름 내림차순으로 정렬해요. 루트들끼리도 형제처럼 정렬돼요. **트리 모양은 그대로 두고, 형제의 순서만 바꾸는 거예요.**\n\n그냥 ORDER BY를 쓰면 트리 모양이 깨지기 때문에 이런 정렬이 따로 있어요.\n\nSTART WITH PID IS NULL을 만족하는 ROOT와 OPS가 둘 다 루트예요. 이름 내림차순이라 ROOT가 OPS보다 먼저 나와요.\n\nROOT의 자식 중 MKT가 DEV보다 먼저예요(M > D). 그래서 1 ROOT, 2 MKT, 3 ADS(MKT의 자식)까지 내려간 뒤 4 DEV로 넘어가요.\n\nDEV의 자식은 WEB이 APP보다 먼저예요(W > A). 그래서 5 WEB, 6 APP, 7 IOS(APP의 자식) 순서예요. 그다음 8 OPS, 9 NET이에요.\n\n결론적으로 4~7번째는 DEV → WEB → APP → IOS예요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "SELECT LEVEL, NM                -- ④ 깊이(LEVEL)와 이름 출력\n  FROM ORG                      -- 9행\n START WITH PID IS NULL         -- ① 부모가 없는 ROOT, OPS가 출발점 (트리 2개)\nCONNECT BY PRIOR ID = PID       -- ② 부모의 ID = 자식의 PID 로 아래로 내려가요\n ORDER SIBLINGS BY NM DESC;     -- ③ 같은 부모의 형제끼리만 이름 내림차순" },
     { t: "[원본] 트리 구조 (형제는 이름 내림차순)", n: "ROOT\n├─ MKT\n│   └─ ADS\n└─ DEV\n    ├─ WEB\n    └─ APP\n        └─ IOS\nOPS\n└─ NET" },
     { t: "[1단계] 깊이 우선 출력", tb: { c: ["순서", "LEVEL", "NM"], r: [[1, 1, "ROOT"], [2, 2, "MKT"], [3, 3, "ADS"], [4, 2, "DEV"], [5, 3, "WEB"], [6, 3, "APP"], [7, 4, "IOS"], [8, 1, "OPS"], [9, 2, "NET"]], hl: [3, 4, 5, 6] } }
   ],
   res: { c: ["LEVEL", "NM"], r: [[1, "ROOT"], [2, "MKT"], [3, "ADS"], [2, "DEV"], [3, "WEB"], [3, "APP"], [4, "IOS"], [1, "OPS"], [2, "NET"]] },
   pg: "WITH RECURSIVE B AS (SELECT ID, NM, PID, ROW_NUMBER() OVER (PARTITION BY PID ORDER BY NM DESC) SN FROM ORG), H AS (SELECT ID, NM, 1 LV, ARRAY[SN] P FROM B WHERE PID IS NULL UNION ALL SELECT B.ID, B.NM, H.LV + 1, H.P || B.SN FROM B JOIN H ON B.PID = H.ID) SELECT LV, NM FROM H ORDER BY P",
-  ox: ["정답.", "LEVEL별로 옆으로 훑는 너비 우선(ROOT, OPS, MKT, DEV, NET, …)으로 본 경우다.", "DESC를 무시하고 형제를 오름차순(OPS가 먼저, APP이 WEB보다 먼저)으로 정렬한 경우다.", "ORDER BY NM DESC처럼 계층을 무시하고 전체를 정렬한 경우다."],
-  trap: "ORDER SIBLINGS BY가 없으면 형제 사이의 출력 순서는 보장되지 않는다. '부모 다음에 자식, 한 가지를 끝까지'라는 깊이 우선 원칙만 보장된다.",
+  ox: ["정답이에요. ROOT → MKT → ADS를 다 내려간 뒤 DEV로 넘어가요. 그 아래는 WEB → APP → IOS 순서예요.", "이렇게 생각하면 틀려요: 'LEVEL별로 옆으로 훑는다'(ROOT, OPS, MKT, DEV, NET …). 계층형 질의는 한 가지를 끝까지 내려가요.", "이렇게 생각하면 틀려요: 'DESC를 무시하고 오름차순으로 정렬한다'. 그러면 APP이 WEB보다 먼저 나와요. 이 SQL은 내림차순이에요.", "이렇게 생각하면 틀려요: '트리를 무시하고 전체를 이름순으로 정렬한다'. SIBLINGS는 형제끼리만 정렬하고 트리 모양은 그대로 둬요."],
+  trap: "ORDER SIBLINGS BY가 없으면 형제 사이의 순서는 보장되지 않아요. '부모 다음에 자식, 한 가지를 끝까지'라는 깊이 우선 규칙만 보장돼요.",
   memo: "계층 출력 = 깊이 우선, SIBLINGS = 형제끼리만 정렬"
 },
 {
@@ -313,16 +351,19 @@
   sql: "SELECT LEVEL AS LV, COUNT(*) AS CNT\n  FROM ORG\n START WITH NM IN ('ROOT', 'DEV')\nCONNECT BY PRIOR ID = PID\n GROUP BY LEVEL\n ORDER BY LEVEL;",
   o: ["L1:2, L2:4, L3:4, L4:1", "L1:1, L2:2, L3:3, L4:1", "L1:1, L2:3, L3:5, L4:2", "L1:2, L2:2, L3:3, L4:1"],
   a: 0,
-  why: "START WITH를 만족하는 행마다 독립된 트리가 따로 전개된다. ROOT 트리(7행)에 DEV가 이미 들어 있어도, DEV 자신도 START WITH를 만족하므로 DEV를 루트(LEVEL 1)로 하는 트리(4행)가 한 번 더 만들어져 총 11행이 된다. LEVEL은 각 트리의 시작 행에서 1부터 다시 센다.",
+  sum: "START WITH 조건에 맞는 행마다 트리를 따로 펼쳐요. DEV는 ROOT 트리 안에도 있지만 자기 트리도 하나 더 만들어서 11행이 나와요.",
+  why: "START WITH 조건을 만족하는 행은 하나하나가 각각 출발점이 돼요. 출발점마다 트리를 따로 펼쳐요.\n\n**이미 다른 트리 안에 들어 있는 행이라도, 그 행이 START WITH 조건에 맞으면 자기 트리를 한 번 더 만들어요.** 계층형 질의는 중복을 자동으로 없애 주지 않아요.\n\nROOT 트리는 ROOT, MKT, ADS, DEV, WEB, APP, IOS로 7행이에요. LEVEL로는 1: ROOT, 2: MKT·DEV, 3: ADS·WEB·APP, 4: IOS예요.\n\nDEV 트리는 DEV, WEB, APP, IOS로 4행이에요. LEVEL은 출발점에서 1부터 다시 세서 1: DEV, 2: WEB·APP, 3: IOS예요.\n\nLEVEL별로 더하면 1은 2개, 2는 4개, 3은 4개, 4는 1개예요. 합계 11행이고 DEV, WEB, APP, IOS가 두 번씩 나와요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "SELECT LEVEL AS LV, COUNT(*) AS CNT  -- ⑤ LEVEL별 행 수\n  FROM ORG\n START WITH NM IN ('ROOT', 'DEV')     -- ① 출발점 2개: ROOT, DEV (각자 트리를 만들어요)\nCONNECT BY PRIOR ID = PID             -- ② 각 출발점에서 아래로 펼쳐요 (7행 + 4행)\n GROUP BY LEVEL                       -- ③ 펼친 11행을 LEVEL별로 묶어요\n ORDER BY LEVEL;                      -- ④" },
     { t: "[원본] 시작 행", tb: { c: ["시작 행", "전개되는 행"], r: [["ROOT", "ROOT, MKT, ADS, DEV, WEB, APP, IOS"], ["DEV", "DEV, WEB, APP, IOS"]] } },
     { t: "[1단계] 트리별 LEVEL", tb: { c: ["트리", "L1", "L2", "L3", "L4"], r: [["ROOT 트리", "ROOT", "MKT, DEV", "ADS, WEB, APP", "IOS"], ["DEV 트리", "DEV", "WEB, APP", "IOS", "—"]] } },
-    { t: "[2단계] LEVEL별 건수", tb: { c: ["LV", "CNT"], r: [[1, 2], [2, 4], [3, 4], [4, 1]] }, n: "합계 11행 (DEV, WEB, APP, IOS가 두 번씩 나온다)" }
+    { t: "[2단계] LEVEL별 건수", tb: { c: ["LV", "CNT"], r: [[1, 2], [2, 4], [3, 4], [4, 1]] }, n: "합계 11행 (DEV, WEB, APP, IOS가 두 번씩 나온다)" },
+    { t: "의도대로 쓰려면: 중복 없이 한 번만 펼치기", n: "SELECT LEVEL AS LV, COUNT(*) AS CNT\n  FROM ORG\n START WITH NM = 'ROOT'\nCONNECT BY PRIOR ID = PID\n GROUP BY LEVEL\n ORDER BY LEVEL;\n-- L1:1, L2:2, L3:3, L4:1 (7행)" }
   ],
   res: { c: ["LV", "CNT"], r: [[1, 2], [2, 4], [3, 4], [4, 1]] },
   pg: "WITH RECURSIVE H AS (SELECT ID, 1 LV FROM ORG WHERE NM IN ('ROOT', 'DEV') UNION ALL SELECT O.ID, H.LV + 1 FROM ORG O JOIN H ON O.PID = H.ID) SELECT LV, COUNT(*) FROM H GROUP BY LV ORDER BY LV",
-  ox: ["정답.", "이미 다른 트리에 포함된 DEV는 다시 전개되지 않는다고 보아 ROOT 트리 7행만 센 경우다.", "DEV 트리의 LEVEL이 원래 깊이(DEV = 2)를 유지한다고 본 경우다. LEVEL은 시작 행이 1이다.", "DEV 시작 행 하나만 추가되고 그 아래는 다시 전개되지 않는다고 본 경우다."],
-  trap: "계층형 질의는 중복 행을 자동으로 제거하지 않는다. START WITH 조건이 한 트리 안의 여러 노드를 동시에 만족시키면 하위 트리가 중복 출력된다.",
+  ox: ["정답이에요. ROOT 트리 7행(1, 2, 3, 1)과 DEV 트리 4행(1, 2, 1)을 LEVEL별로 더하면 2, 4, 4, 1이에요.", "이렇게 생각하면 틀려요: '이미 나온 DEV는 다시 펼치지 않는다'. 그러면 ROOT 트리 7행만 남아요. 계층형 질의는 중복을 없애지 않아요.", "이렇게 생각하면 틀려요: 'DEV 트리도 원래 깊이(DEV = 2)를 유지한다'. LEVEL은 출발점이 늘 1이에요.", "이렇게 생각하면 틀려요: 'DEV는 출발점 한 행만 추가되고 아래는 안 펼친다'. 출발점이 되면 그 아래도 다시 다 펼쳐요."],
+  trap: "계층형 질의는 중복 행을 자동으로 없애지 않아요. START WITH 조건이 한 트리 안의 여러 행에 맞으면 아래 트리가 중복으로 나와요.",
   memo: "START WITH 만족 행마다 새 트리, LEVEL 1부터"
 },
 {
@@ -333,15 +374,17 @@
   sql: "(가) SELECT NM FROM ORG\n     START WITH PID IS NULL\n   CONNECT BY PRIOR ID = PID AND NM <> 'DEV';\n\n(나) SELECT NM FROM ORG\n     START WITH PID IS NULL\n   CONNECT BY PRIOR ID = PID AND PRIOR NM <> 'DEV';\n\n(다) SELECT NM FROM ORG\n     WHERE NM <> 'DEV'\n     START WITH PID IS NULL\n   CONNECT BY PRIOR ID = PID;",
   o: ["5, 6, 8", "5, 5, 8", "8, 6, 5", "6, 5, 8"],
   a: 0,
-  why: "CONNECT BY 조건은 '부모(PRIOR) → 자식' 연결을 허용할지 정한다. (가)의 NM <> 'DEV'는 자식 쪽 조건이라 DEV로 내려가는 연결이 막히고, DEV 아래 WEB, APP, IOS까지 도달할 수 없어 9 − 4 = 5행이다. (나)의 PRIOR NM <> 'DEV'는 부모 쪽 조건이라 DEV 자신은 연결되지만 DEV에서 자식으로 내려가는 연결이 막혀 WEB, APP, IOS만 빠진 6행이다. (다)의 WHERE는 전개가 끝난 9행에서 DEV 한 행만 걸러 8행이다.",
+  sum: "CONNECT BY 조건은 '이 연결로 내려가도 되나'를 정해서, 막히면 그 아래가 통째로 빠져요. WHERE는 다 펼친 뒤 그 행 하나만 빼요. 그래서 5, 6, 8이에요.",
+  why: "CONNECT BY 조건은 '부모에서 이 자식으로 내려가도 되나'를 정해요. 조건이 거짓이면 그 자식으로 못 내려가고, 그 아래 자손들도 통째로 못 가요.\n\nPRIOR가 붙은 쪽은 부모 행의 값이고, 안 붙은 쪽은 자식 행의 값이에요. **그래서 NM <> 'DEV'는 'DEV로 내려가지 마라', PRIOR NM <> 'DEV'는 'DEV에서 더 내려가지 마라'라는 뜻이 돼요.**\n\n(가)는 DEV로 가는 길이 막혀요. DEV와 그 아래 WEB, APP, IOS까지 4행이 빠져서 9 − 4 = 5행이에요.\n\n(나)는 DEV까지는 내려가요. 하지만 DEV가 부모일 때 연결이 막혀서 WEB, APP, IOS만 빠져요. 9 − 3 = 6행이에요.\n\n(다)의 WHERE는 트리를 다 펼친 뒤에 적용돼요. 9행 중 DEV 한 행만 빠지고, WEB, APP, IOS는 남아요. 8행이에요.\n\n결론은 5, 6, 8이에요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "-- (가) 자식 쪽 조건: DEV로 내려가는 연결을 막아요 → DEV 가지 통째로 제외\nSELECT NM FROM ORG\n START WITH PID IS NULL\nCONNECT BY PRIOR ID = PID AND NM <> 'DEV';\n-- (나) 부모 쪽 조건(PRIOR): DEV에서 더 내려가는 연결을 막아요 → DEV는 남고 자손만 제외\nSELECT NM FROM ORG\n START WITH PID IS NULL\nCONNECT BY PRIOR ID = PID AND PRIOR NM <> 'DEV';\n-- (다) 다 펼친 9행에서 마지막에 DEV 한 행만 빼요\nSELECT NM FROM ORG\n WHERE NM <> 'DEV'\n START WITH PID IS NULL\nCONNECT BY PRIOR ID = PID;" },
     { t: "[원본] 전체 전개 9행", n: "ROOT\n├─ MKT\n│   └─ ADS\n└─ DEV\n    ├─ WEB\n    └─ APP\n        └─ IOS\nOPS\n└─ NET" },
     { t: "[1단계] 조건별 제외 행", tb: { c: ["SQL", "조건 위치", "제외되는 행", "행 수"], r: [["(가)", "CONNECT BY (자식 NM)", "DEV, WEB, APP, IOS", 5], ["(나)", "CONNECT BY (PRIOR = 부모 NM)", "WEB, APP, IOS", 6], ["(다)", "WHERE (전개 후 필터)", "DEV", 8]], hl: [1] } }
   ],
   res: { c: ["가", "나", "다"], r: [[5, 6, 8]] },
   pg: "WITH RECURSIVE A AS (SELECT ID, NM FROM ORG WHERE PID IS NULL UNION ALL SELECT O.ID, O.NM FROM ORG O JOIN A ON O.PID = A.ID AND O.NM <> 'DEV'), B AS (SELECT ID, NM FROM ORG WHERE PID IS NULL UNION ALL SELECT O.ID, O.NM FROM ORG O JOIN B ON O.PID = B.ID AND B.NM <> 'DEV'), C AS (SELECT ID, NM FROM ORG WHERE PID IS NULL UNION ALL SELECT O.ID, O.NM FROM ORG O JOIN C ON O.PID = C.ID) SELECT (SELECT COUNT(*) FROM A), (SELECT COUNT(*) FROM B), (SELECT COUNT(*) FROM C WHERE NM <> 'DEV')",
-  ox: ["정답.", "PRIOR를 무시하고 (나)도 DEV 가지 전체가 잘린다고 본 경우다.", "CONNECT BY 조건과 WHERE 조건의 역할을 서로 바꾼 경우다.", "PRIOR가 붙은 쪽(부모)과 붙지 않은 쪽(자식)을 반대로 읽은 경우다."],
-  trap: "CONNECT BY 조건은 START WITH로 고른 루트 행에는 적용되지 않는다. 루트를 거르려면 START WITH에, 결과 행 하나만 거르려면 WHERE에 쓴다.",
+  ox: ["정답이에요. (가)는 DEV 가지 4행이 빠져 5, (나)는 DEV 아래 3행만 빠져 6, (다)는 DEV 한 행만 빠져 8이에요.", "이렇게 생각하면 틀려요: 'PRIOR가 있든 없든 DEV 가지 전체가 잘린다'. PRIOR NM은 부모 쪽이라 DEV 자신은 남아요.", "이렇게 생각하면 틀려요: 'CONNECT BY 조건은 그 행만 빼고, WHERE가 가지를 자른다'. 실제로는 반대예요.", "이렇게 생각하면 틀려요: 'PRIOR가 붙은 쪽이 자식이다'. PRIOR가 붙은 쪽이 부모예요. 그래서 (가)와 (나)의 결과가 뒤바뀌었어요."],
+  trap: "CONNECT BY 조건은 START WITH로 고른 출발 행에는 적용되지 않아요. 출발 행을 거르려면 START WITH에, 결과에서 행 하나만 빼려면 WHERE에 써요.",
   memo: "CONNECT BY = 가지치기(아래 전부), WHERE = 그 행만"
 },
 {
@@ -352,15 +395,17 @@
   sql: "SELECT LEVEL AS LV,\n       COUNT(*) AS CNT,\n       SUM(CONNECT_BY_ISLEAF) AS LEAF\n  FROM ORG\n START WITH PID IS NULL\nCONNECT BY PRIOR ID = PID\n GROUP BY LEVEL\n ORDER BY LEVEL;",
   o: ["2/0, 3/1, 3/2, 1/1", "2/0, 3/0, 3/0, 1/1", "1/0, 2/0, 3/2, 1/1", "2/0, 3/1, 3/3, 1/1"],
   a: 0,
-  why: "CONNECT_BY_ISLEAF는 그 행 아래로 더 전개되는 자식이 없으면 1이다. '가장 깊은 LEVEL'이 아니라 '자식이 없는 노드'라는 점이 핵심이다. 두 루트(ROOT, OPS)가 LEVEL 1이다. LEVEL 2의 NET은 OPS 트리의 끝이라 단말이다. LEVEL 3에서는 ADS, WEB이 단말이고 APP은 자식 IOS가 있어 단말이 아니다. LEVEL 4의 IOS는 단말이다.",
+  sum: "CONNECT_BY_ISLEAF는 '자식이 없으면 1'이에요. 깊이와 상관없이 NET, ADS, WEB, IOS가 단말이라 LEVEL별로 0, 1, 2, 1이에요.",
+  why: "CONNECT_BY_ISLEAF는 그 행 아래로 더 내려갈 자식이 없으면 1, 있으면 0이에요. 단말(leaf)은 나뭇잎처럼 가지 끝에 있는 행이라는 뜻이에요.\n\n**단말인지는 '얼마나 깊은가'가 아니라 '자식이 있는가'로 정해져요.** 얕은 곳에서 끝나는 가지도 그 끝은 단말이에요.\n\n부모가 없는 ROOT와 OPS가 LEVEL 1이에요. 둘 다 자식이 있어서 단말이 아니에요. LEVEL 1은 2개, 단말 0개예요.\n\nLEVEL 2는 MKT, DEV, NET이에요. NET은 자식이 없어서 단말이에요. 3개 중 단말 1개예요.\n\nLEVEL 3은 ADS, WEB, APP이에요. ADS와 WEB은 자식이 없어서 단말이고, APP은 자식 IOS가 있어서 단말이 아니에요. 3개 중 단말 2개예요.\n\nLEVEL 4는 IOS 하나이고 단말이에요. 결론은 2/0, 3/1, 3/2, 1/1이에요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "SELECT LEVEL AS LV,\n       COUNT(*) AS CNT,                -- ④ LEVEL별 행 수\n       SUM(CONNECT_BY_ISLEAF) AS LEAF  -- ④ 자식 없는 행(1)의 개수\n  FROM ORG\n START WITH PID IS NULL               -- ① ROOT, OPS에서 출발\nCONNECT BY PRIOR ID = PID              -- ② 아래로 펼쳐 9행, 각 행에 LEVEL·ISLEAF가 붙어요\n GROUP BY LEVEL                       -- ③ LEVEL별로 묶어요\n ORDER BY LEVEL;" },
     { t: "[원본] 트리", n: "ROOT (L1)\n├─ MKT (L2)\n│   └─ ADS (L3) ★\n└─ DEV (L2)\n    ├─ WEB (L3) ★\n    └─ APP (L3)\n        └─ IOS (L4) ★\nOPS (L1)\n└─ NET (L2) ★\n★ = CONNECT_BY_ISLEAF 1" },
     { t: "[1단계] LEVEL별 집계", tb: { c: ["LV", "노드", "CNT", "LEAF"], r: [[1, "ROOT, OPS", 2, 0], [2, "MKT, DEV, NET", 3, 1], [3, "ADS, WEB, APP", 3, 2], [4, "IOS", 1, 1]], hl: [1, 2] } }
   ],
   res: { c: ["LV", "CNT", "LEAF"], r: [[1, 2, 0], [2, 3, 1], [3, 3, 2], [4, 1, 1]] },
   pg: "WITH RECURSIVE H AS (SELECT ID, 1 LV FROM ORG WHERE PID IS NULL UNION ALL SELECT O.ID, H.LV + 1 FROM ORG O JOIN H ON O.PID = H.ID) SELECT LV, COUNT(*), SUM(CASE WHEN NOT EXISTS (SELECT 1 FROM ORG C WHERE C.PID = H.ID) THEN 1 ELSE 0 END) FROM H GROUP BY LV ORDER BY LV",
-  ox: ["정답.", "가장 깊은 LEVEL(4)의 노드만 단말로 본 경우다. 얕은 곳에서 끝나는 NET, ADS, WEB도 단말이다.", "START WITH PID IS NULL을 만족하는 두 번째 루트 OPS(와 NET)를 빠뜨린 경우다.", "자식 IOS가 있는 APP까지 LEVEL 3의 단말로 센 경우다. 단말 여부는 깊이가 아니라 자식 유무로 정해진다."],
-  trap: "단말 노드 수 = 전체 노드 수 − '자식을 가진 노드' 수로 검산할 수 있다. 여기서는 9 − 5(ROOT, MKT, DEV, APP, OPS) = 4다.",
+  ox: ["정답이에요. 자식 없는 행은 NET(L2), ADS·WEB(L3), IOS(L4)라서 LEVEL별 단말이 0, 1, 2, 1이에요.", "이렇게 생각하면 틀려요: '가장 깊은 LEVEL만 단말이다'. 얕은 곳에서 끝나는 NET, ADS, WEB도 자식이 없으니 단말이에요.", "이렇게 생각하면 틀려요: '루트는 ROOT 하나뿐이다'. PID가 NULL인 OPS도 루트라서 OPS와 NET이 함께 세져요.", "이렇게 생각하면 틀려요: 'LEVEL 3은 다 단말이다'. APP은 자식 IOS가 있어서 단말이 아니에요."],
+  trap: "단말 수 = 전체 행 수 − '자식이 있는 행' 수로 검산할 수 있어요. 여기서는 9 − 5(ROOT, MKT, DEV, APP, OPS) = 4예요.",
   memo: "ISLEAF = 자식 없음(깊이와 무관)"
 },
 {
@@ -371,15 +416,18 @@
   sql: "SELECT LEVEL AS LV, NM,\n       SYS_CONNECT_BY_PATH(NM, '/') AS PATH\n  FROM ORG\n START WITH NM = 'IOS'\nCONNECT BY PRIOR PID = ID;",
   o: ["4, /IOS/APP/DEV/ROOT", "1, /ROOT/DEV/APP/IOS", "4, /ROOT/DEV/APP/IOS", "1, /IOS/APP/DEV/ROOT"],
   a: 0,
-  why: "PRIOR PID = ID는 '이전 행의 PID를 ID로 가진 행', 즉 부모를 다음 행으로 찾는 역방향(Bottom-Up) 전개다. LEVEL은 방향과 관계없이 START WITH 행(IOS)이 1이고 한 단계 이동할 때마다 1씩 커진다. SYS_CONNECT_BY_PATH는 시작 행부터 현재 행까지 '전개된 순서대로' 값을 이어 붙이므로 IOS에서 출발한 경로가 된다.",
+  sum: "PRIOR PID = ID는 부모 쪽으로 거슬러 올라가는 방향이에요. 출발한 IOS가 LEVEL 1이고 경로도 IOS부터 쌓여서, ROOT는 LV 4, /IOS/APP/DEV/ROOT예요.",
+  why: "CONNECT BY PRIOR PID = ID는 '앞 행의 PID(부모 번호)를 ID로 가진 행'을 다음 행으로 찾아요. 즉 자식에서 부모로 거슬러 올라가는 방향(역방향)이에요.\n\n**LEVEL과 경로는 실제 트리의 꼭대기가 아니라 '출발한 행'을 기준으로 매겨요.** LEVEL은 출발 행이 1이고, 한 칸 이동할 때마다 1씩 커져요.\n\nSYS_CONNECT_BY_PATH(NM, '/')는 출발 행부터 지금 행까지 지나온 이름을 순서대로 '/'로 이어 붙여요.\n\nIOS(LEVEL 1, /IOS)에서 출발해요. IOS의 부모 APP이 LEVEL 2(/IOS/APP), APP의 부모 DEV가 LEVEL 3(/IOS/APP/DEV)이에요.\n\nDEV의 부모 ROOT가 LEVEL 4이고 경로는 /IOS/APP/DEV/ROOT예요. ROOT는 PID가 NULL이라 더 올라가지 못하고 끝나요.\n\n결론은 4, /IOS/APP/DEV/ROOT예요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "SELECT LEVEL AS LV, NM,\n       SYS_CONNECT_BY_PATH(NM, '/') AS PATH  -- ③ 출발 행부터 지나온 이름을 '/'로 이어요\n  FROM ORG\n START WITH NM = 'IOS'                       -- ① IOS에서 출발 (LEVEL 1)\nCONNECT BY PRIOR PID = ID;                   -- ② 앞 행의 PID = 다음 행의 ID → 부모로 올라가요" },
     { t: "[원본] IOS에서 위로 올라가는 경로", n: "IOS → APP → DEV → ROOT" },
-    { t: "[1단계] 전개 결과", tb: { c: ["LV", "NM", "PATH"], r: [[1, "IOS", "/IOS"], [2, "APP", "/IOS/APP"], [3, "DEV", "/IOS/APP/DEV"], [4, "ROOT", "/IOS/APP/DEV/ROOT"]], hl: [3] } }
+    { t: "[1단계] 전개 결과", tb: { c: ["LV", "NM", "PATH"], r: [[1, "IOS", "/IOS"], [2, "APP", "/IOS/APP"], [3, "DEV", "/IOS/APP/DEV"], [4, "ROOT", "/IOS/APP/DEV/ROOT"]], hl: [3] } },
+    { t: "의도대로 쓰려면: 꼭대기(ROOT)부터의 경로", n: "-- 위에서 아래로 펼치고, IOS 행만 골라요\nSELECT LEVEL AS LV, NM,\n       SYS_CONNECT_BY_PATH(NM, '/') AS PATH\n  FROM ORG\n WHERE NM = 'IOS'\n START WITH PID IS NULL\nCONNECT BY PRIOR ID = PID;\n-- LV 4, IOS, /ROOT/DEV/APP/IOS" }
   ],
   res: { c: ["LV", "NM", "PATH"], r: [[1, "IOS", "/IOS"], [2, "APP", "/IOS/APP"], [3, "DEV", "/IOS/APP/DEV"], [4, "ROOT", "/IOS/APP/DEV/ROOT"]] },
   pg: "WITH RECURSIVE H AS (SELECT ID, NM, PID, 1 LV, '/' || NM PATH FROM ORG WHERE NM = 'IOS' UNION ALL SELECT O.ID, O.NM, O.PID, H.LV + 1, H.PATH || '/' || O.NM FROM ORG O JOIN H ON O.ID = H.PID) SELECT LV, NM, PATH FROM H ORDER BY LV",
-  ox: ["정답.", "LEVEL과 경로를 모두 실제 트리의 루트 기준으로 매긴 경우다.", "경로가 항상 최상위 노드부터 시작한다고 본 경우다. 경로는 전개 시작 행부터 쌓인다.", "역방향에서는 최상위 노드가 LEVEL 1이라고 본 경우다."],
-  trap: "역방향 전개에서는 실제 최상위 노드(ROOT)가 더 올라갈 곳이 없으므로 CONNECT_BY_ISLEAF = 1이 된다. 단말 여부도 '전개 방향' 기준이다.",
+  ox: ["정답이에요. IOS에서 출발해 APP, DEV, ROOT 순으로 올라가요. ROOT는 4번째라 LV 4, 경로는 /IOS/APP/DEV/ROOT예요.", "이렇게 생각하면 틀려요: 'LEVEL과 경로는 실제 꼭대기 ROOT 기준이다'. 둘 다 출발한 IOS 기준이에요.", "이렇게 생각하면 틀려요: '경로는 항상 꼭대기부터 시작한다'. 경로는 출발 행부터 지나온 순서대로 쌓여요.", "이렇게 생각하면 틀려요: '거꾸로 올라가면 꼭대기가 LEVEL 1이다'. 방향과 상관없이 출발 행이 LEVEL 1이에요."],
+  trap: "거꾸로 올라갈 때는 실제 꼭대기(ROOT)가 더 갈 곳이 없어서 CONNECT_BY_ISLEAF = 1이 돼요. 단말인지도 '펼치는 방향' 기준이에요.",
   memo: "역방향: 시작 행 LEVEL 1, 경로도 시작 행부터"
 },
 {
@@ -390,15 +438,17 @@
   sql: "(가) SELECT COUNT(*) FROM ORG C JOIN ORG P ON C.PID = P.ID;\n(나) SELECT COUNT(*) FROM ORG C LEFT OUTER JOIN ORG P ON C.PID = P.ID;\n(다) SELECT COUNT(*) FROM ORG C\n       JOIN ORG P ON C.PID = P.ID\n       JOIN ORG G ON P.PID = G.ID;",
   o: ["7, 9, 4", "7, 7, 4", "9, 9, 4", "7, 9, 3"],
   a: 0,
-  why: "셀프 조인은 같은 테이블을 별칭으로 나눠 자식(C)과 부모(P)처럼 조인한다. (가) 내부 조인은 부모가 있는 행만 남으므로 PID가 NULL인 ROOT, OPS를 뺀 7건이다. (나) 왼쪽 아우터 조인은 부모가 없는 행도 P 쪽을 NULL로 채워 남기므로 9건이다. (다)는 부모의 부모(조부모)까지 있어야 하므로 ADS(→MKT→ROOT), WEB, APP(→DEV→ROOT), IOS(→APP→DEV)의 4건이다. NET은 부모 OPS의 PID가 NULL이라 빠진다.",
+  sum: "내부 조인은 부모가 있는 행만 남아 7건, 아우터 조인은 부모가 없어도 남아 9건이에요. 조부모까지 있는 행은 ADS, WEB, APP, IOS의 4건이에요.",
+  why: "셀프 조인은 같은 테이블에 별칭을 두 개 붙여, 한쪽은 자식(C), 다른 쪽은 부모(P)처럼 쓰는 방법이에요.\n\n내부 조인(JOIN)은 짝이 있는 행만 남겨요. C.PID = P.ID에서 PID가 NULL이면 비교 결과가 '모름'이 돼서 짝이 안 생겨요. **그래서 부모가 없는 ROOT, OPS는 내부 조인에서 빠지고, 아우터 조인에서는 부모 칸을 NULL로 채워 남아요.**\n\n(가)는 9행 중 ROOT, OPS를 뺀 7건이에요. (나)는 LEFT OUTER JOIN이라 9건 모두 남아요.\n\n(다)는 부모의 부모(조부모)까지 짝이 있어야 해요. ADS(→MKT→ROOT), WEB(→DEV→ROOT), APP(→DEV→ROOT), IOS(→APP→DEV)가 해당돼요.\n\nMKT, DEV는 부모 ROOT의 부모가 없어서 빠져요. NET도 부모 OPS의 부모가 없어서 빠져요. 그래서 4건이에요.\n\n결론은 7, 9, 4예요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "-- (가) 자식 C의 PID와 부모 P의 ID가 같은 쌍만 남겨요 (PID가 NULL인 행은 짝이 없음)\nSELECT COUNT(*) FROM ORG C JOIN ORG P ON C.PID = P.ID;\n-- (나) 짝이 없어도 C의 행은 다 남겨요 (P 쪽은 NULL)\nSELECT COUNT(*) FROM ORG C LEFT OUTER JOIN ORG P ON C.PID = P.ID;\n-- (다) 부모 P의 부모 G까지 짝이 있어야 남아요\nSELECT COUNT(*) FROM ORG C\n  JOIN ORG P ON C.PID = P.ID\n  JOIN ORG G ON P.PID = G.ID;" },
     { t: "[원본] 각 행의 부모·조부모", tb: { c: ["NM", "부모", "조부모"], r: [["ROOT", "—", "—"], ["MKT", "ROOT", "—"], ["DEV", "ROOT", "—"], ["WEB", "DEV", "ROOT"], ["APP", "DEV", "ROOT"], ["ADS", "MKT", "ROOT"], ["IOS", "APP", "DEV"], ["OPS", "—", "—"], ["NET", "OPS", "—"]], hl: [3, 4, 5, 6] } },
     { t: "[1단계] 건수", tb: { c: ["SQL", "조건", "건수"], r: [["(가)", "부모 있음", 7], ["(나)", "모든 자식 행", 9], ["(다)", "조부모 있음", 4]] } }
   ],
   res: { c: ["가", "나", "다"], r: [[7, 9, 4]] },
   pg: "SELECT (SELECT COUNT(*) FROM ORG C JOIN ORG P ON C.PID = P.ID), (SELECT COUNT(*) FROM ORG C LEFT OUTER JOIN ORG P ON C.PID = P.ID), (SELECT COUNT(*) FROM ORG C JOIN ORG P ON C.PID = P.ID JOIN ORG G ON P.PID = G.ID)",
-  ox: ["정답.", "아우터 조인도 부모 없는 행을 버린다고 본 경우다.", "내부 조인에서도 PID가 NULL인 행이 남는다고 본 경우다. NULL = 값은 참이 아니다.", "조부모의 조건을 '깊이가 정확히 3'으로 좁혀 IOS를 뺀 경우다. 조부모만 있으면 깊이와 상관없이 포함된다."],
-  trap: "셀프 조인 방향을 바꿔 ON C.ID = P.PID로 쓰면 '각 부모에 대한 자식' 쌍이 된다. 건수는 같아도 의미(C, P의 역할)가 뒤바뀐다.",
+  ox: ["정답이에요. 부모가 있는 행 7건, 아우터 조인은 9건 전부, 조부모까지 있는 행은 ADS, WEB, APP, IOS의 4건이에요.", "이렇게 생각하면 틀려요: '아우터 조인도 부모 없는 행을 버린다'. LEFT OUTER JOIN은 왼쪽(C) 행을 모두 남겨요.", "이렇게 생각하면 틀려요: '내부 조인에서도 PID가 NULL인 행이 남는다'. NULL과 비교하면 결과가 '모름'이라 짝이 안 생겨요.", "이렇게 생각하면 틀려요: '조부모가 있다 = 깊이가 정확히 3이다'. 그래서 IOS를 뺐어요. IOS도 부모 APP, 조부모 DEV가 있어서 들어가요."],
+  trap: "셀프 조인 방향을 바꿔 ON C.ID = P.PID로 쓰면 '각 부모와 그 자식' 쌍이 돼요. 건수는 같아도 C와 P의 역할이 뒤바뀌어요.",
   memo: "셀프 조인 내부 = 부모 있는 행만, 아우터 = 전부"
 },
 {
@@ -409,16 +459,19 @@
   sql: "SELECT ROWNUM AS RN, ID, SAL\n  FROM T\n WHERE ROWNUM <= 3\n ORDER BY SAL DESC;",
   o: ["(2, 2), (1, 1), (3, 3)", "(1, 2), (2, 4), (3, 1)", "(1, 2), (2, 1), (3, 3)", "(2, 2), (4, 4), (1, 1)"],
   a: 0,
-  why: "ROWNUM은 WHERE 절을 통과하는 순간 1, 2, 3 … 으로 붙는 번호이고, ORDER BY는 그 뒤에 실행된다. 그래서 먼저 읽힌 3행(ID 1, 2, 3)이 ROWNUM 1, 2, 3을 받은 채로 뽑히고, 그 3행만 SAL 내림차순으로 다시 정렬된다. 이미 붙은 ROWNUM 값은 정렬 후에도 바뀌지 않으므로 RN 열이 2, 1, 3처럼 뒤섞여 보인다.",
+  sum: "ROWNUM은 정렬보다 먼저 붙어요. 그래서 먼저 읽힌 ID 1, 2, 3이 번호 1, 2, 3을 받은 채로 뽑히고, 그 3행만 SAL 순으로 다시 줄을 서요.",
+  why: "ROWNUM은 행을 읽어서 WHERE를 통과시키는 순간 1, 2, 3 … 으로 붙는 번호예요. ORDER BY는 그보다 나중에, 결과를 내보내기 직전에 실행돼요.\n\n**그래서 같은 SELECT 안에서 ROWNUM과 ORDER BY를 함께 쓰면 '먼저 아무 3행을 뽑고, 그 3행만 정렬'하게 돼요.** 급여 상위 3명이 아니에요.\n\n왜 그럴까요? ROWNUM은 '지금까지 몇 행을 내보냈나'를 세는 번호라서, 행을 하나씩 읽는 단계에서 바로 정해져요. 정렬은 행을 다 모은 다음에야 할 수 있어요.\n\n읽는 순서는 ID 1(300), 2(500), 3(100), 4(400), 5(200)이에요. ID 1, 2, 3이 번호 1, 2, 3을 받고 통과해요. ID 4는 번호 4가 될 차례라 ROWNUM <= 3에서 떨어져요. ID 5도 마찬가지예요.\n\n남은 3행을 SAL 내림차순으로 정렬하면 ID 2(500), ID 1(300), ID 3(100)이에요. 이미 붙은 번호는 바뀌지 않아요.\n\n결론은 (2, 2), (1, 1), (3, 3)이에요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "SELECT ROWNUM AS RN, ID, SAL  -- ③ 이미 붙은 번호를 그대로 보여 줘요\n  FROM T                      -- ① ID 1 → 5 순서로 읽어요\n WHERE ROWNUM <= 3            -- ② 통과할 때마다 1, 2, 3 번호를 붙이고, 4번째부터 탈락\n ORDER BY SAL DESC;           -- ④ 남은 3행(ID 1, 2, 3)만 SAL 큰 순서로 정렬" },
     { t: "[원본] 읽히는 순서", tb: { c: ["읽은 순서", "ID", "SAL"], r: [[1, 1, 300], [2, 2, 500], [3, 3, 100], [4, 4, 400], [5, 5, 200]] } },
     { t: "[1단계] WHERE ROWNUM <= 3 (번호 부여와 동시에 필터)", tb: { c: ["RN", "ID", "SAL"], r: [[1, 1, 300], [2, 2, 500], [3, 3, 100]] }, n: "ID 4(400)는 4번째로 읽혀 탈락한다." },
-    { t: "[2단계] ORDER BY SAL DESC (RN은 그대로)", tb: { c: ["RN", "ID", "SAL"], r: [[2, 2, 500], [1, 1, 300], [3, 3, 100]], hl: [0, 1, 2] } }
+    { t: "[2단계] ORDER BY SAL DESC (RN은 그대로)", tb: { c: ["RN", "ID", "SAL"], r: [[2, 2, 500], [1, 1, 300], [3, 3, 100]], hl: [0, 1, 2] } },
+    { t: "의도대로 쓰려면: 급여 상위 3명 (Top-N)", n: "-- 안쪽에서 먼저 정렬하고, 바깥에서 번호를 붙여 잘라요\nSELECT ROWNUM AS RN, ID, SAL\n  FROM (SELECT ID, SAL FROM T ORDER BY SAL DESC)\n WHERE ROWNUM <= 3;\n-- (1, 2, 500), (2, 4, 400), (3, 1, 300)" }
   ],
   res: { c: ["RN", "ID", "SAL"], r: [[2, 2, 500], [1, 1, 300], [3, 3, 100]] },
   pg: "SELECT RN, ID, SAL FROM (SELECT ROW_NUMBER() OVER (ORDER BY ID) RN, ID, SAL FROM T) X WHERE RN <= 3 ORDER BY SAL DESC",
-  ox: ["정답.", "ORDER BY가 먼저 실행되어 급여 상위 3명을 뽑는다고 본 경우다. 그것은 인라인 뷰에서 정렬한 뒤 ROWNUM을 걸었을 때의 결과다.", "정렬한 뒤 ROWNUM이 1, 2, 3으로 다시 매겨진다고 본 경우다. ROWNUM은 한 번 붙으면 바뀌지 않는다.", "상위 3건을 정렬로 고른다고 보면서 RN은 읽힌 순서를 유지한다고 섞어 생각한 경우다. RN 4인 행은 WHERE ROWNUM <= 3을 통과할 수 없다."],
-  trap: "Top-N은 반드시 'SELECT … FROM (SELECT … ORDER BY …) WHERE ROWNUM <= N' 형태로, 정렬을 인라인 뷰 안에서 끝낸 뒤 바깥에서 ROWNUM을 걸어야 한다.",
+  ox: ["정답이에요. 먼저 읽힌 ID 1, 2, 3이 번호 1, 2, 3을 받고, 그 3행만 SAL 순(2, 1, 3)으로 정렬돼요.", "이렇게 생각하면 틀려요: 'ORDER BY가 먼저 실행돼서 급여 상위 3명을 뽑는다'. 그건 안쪽에서 정렬한 뒤 바깥에서 ROWNUM을 걸었을 때의 결과예요.", "이렇게 생각하면 틀려요: '정렬하고 나면 번호가 1, 2, 3으로 다시 붙는다'. ROWNUM은 한 번 붙으면 바뀌지 않아요.", "이렇게 생각하면 틀려요: '정렬로 상위 3명을 고르되 번호는 읽힌 순서를 따른다'. 번호 4인 ID 4는 ROWNUM <= 3을 통과할 수 없어요."],
+  trap: "Top-N은 반드시 'SELECT … FROM (SELECT … ORDER BY …) WHERE ROWNUM <= N' 모양으로 써요. 정렬은 안쪽에서 끝내고, 바깥에서 ROWNUM을 걸어야 해요.",
   memo: "ROWNUM(WHERE) → ORDER BY: 번호가 정렬보다 먼저"
 },
 {
@@ -429,14 +482,16 @@
   sql: "(가) SELECT * FROM T WHERE ROWNUM > 3;\n(나) SELECT * FROM (SELECT ROWNUM AS RN, ID FROM T) WHERE RN > 3;\n(다) SELECT * FROM T WHERE ROWNUM BETWEEN 1 AND 3;\n(라) SELECT * FROM T WHERE ROWNUM BETWEEN 2 AND 3;",
   o: ["0, 2, 3, 0", "2, 2, 3, 2", "0, 0, 3, 0", "0, 2, 3, 2"],
   a: 0,
-  why: "ROWNUM은 행이 WHERE 조건을 '통과해야' 다음 번호로 올라간다. 첫 행은 항상 ROWNUM 1로 평가되므로 ROWNUM > 3이나 ROWNUM BETWEEN 2 AND 3은 첫 행에서 거짓이 되고, 그 행이 버려지면 다음 행도 다시 1로 평가되어 영원히 통과하지 못한다(0건). 반면 (나)처럼 인라인 뷰에서 ROWNUM을 RN이라는 별칭의 일반 컬럼으로 굳혀 두면, 바깥 WHERE는 고정된 값 1~5를 비교하므로 RN 4, 5의 2건이 나온다.",
+  sum: "ROWNUM은 행이 통과해야 다음 번호로 올라가요. 첫 행이 1에서 떨어지면 다음 행도 또 1이라, '1을 포함하지 않는 조건'은 0건이에요.",
+  why: "ROWNUM은 행이 WHERE 조건을 '통과해야' 그 번호가 확정되고, 다음 행은 그다음 번호를 받아요.\n\n**그래서 첫 행은 늘 ROWNUM 1로 검사받아요. 1에서 떨어지면 다음 행도 다시 1로 검사받아서, 1을 포함하지 않는 조건은 영원히 아무 행도 통과하지 못해요.**\n\n(가) ROWNUM > 3을 볼게요. ID 1은 1로 검사받아 떨어져요. ID 2도 다시 1로 검사받아 떨어져요. 끝까지 이렇게 되어 0건이에요.\n\n(라) BETWEEN 2 AND 3도 1을 포함하지 않아서 같은 이유로 0건이에요. (다) BETWEEN 1 AND 3은 1부터 시작하니 1, 2, 3번 행이 차례로 통과해 3건이에요.\n\n(나)는 안쪽(인라인 뷰)에서 ROWNUM을 RN이라는 보통 컬럼으로 굳혀 둬요. 바깥 WHERE는 이미 정해진 값 1~5를 비교하니 RN 4, 5의 2건이 나와요.\n\n결론은 0, 2, 3, 0이에요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "SELECT * FROM T WHERE ROWNUM > 3;               -- (가) 매 행이 1로 검사받아 계속 탈락 → 0건\nSELECT * FROM (SELECT ROWNUM AS RN, ID FROM T)  -- (나) 안쪽에서 1~5 번호를 굳혀 둬요\n WHERE RN > 3;                                  --      바깥은 고정 값 비교 → RN 4, 5 (2건)\nSELECT * FROM T WHERE ROWNUM BETWEEN 1 AND 3;   -- (다) 1부터라 정상 → 3건\nSELECT * FROM T WHERE ROWNUM BETWEEN 2 AND 3;   -- (라) 1이 없어서 (가)와 같음 → 0건" },
     { t: "[원본] (가) WHERE ROWNUM > 3의 평가", tb: { c: ["읽은 행", "부여될 ROWNUM", "ROWNUM > 3", "결과"], r: [["ID 1", 1, "거짓", "버림 (번호 증가 없음)"], ["ID 2", 1, "거짓", "버림"], ["…", 1, "거짓", "버림"]] } },
     { t: "[1단계] (나) 인라인 뷰에서 번호 고정", tb: { c: ["RN", "ID", "RN > 3"], r: [[1, 1, "거짓"], [2, 2, "거짓"], [3, 3, "거짓"], [4, 4, "참"], [5, 5, "참"]], hl: [3, 4] } },
     { t: "[2단계] 정리", tb: { c: ["SQL", "건수", "이유"], r: [["(가)", 0, "1이 될 행이 없음"], ["(나)", 2, "RN은 고정값"], ["(다)", 3, "1부터 시작하므로 정상"], ["(라)", 0, "1을 포함하지 않음"]] } }
   ],
-  ox: ["정답.", "ROWNUM을 미리 붙어 있는 고정 번호(ROW_NUMBER)처럼 본 경우다.", "인라인 뷰의 별칭 RN도 ROWNUM처럼 동작한다고 본 경우다. 별칭은 이미 계산된 고정값이다.", "BETWEEN 2 AND 3은 1을 포함하지 않아 (가)와 같은 이유로 0건이 된다는 점을 놓친 경우다."],
-  trap: "ROWNUM 조건으로 쓸 수 있는 것은 '= 1', '<= N', '< N', 'BETWEEN 1 AND N'처럼 1을 포함하는 형태뿐이다. ROWNUM이 실제로 읽히는 물리 순서에 의존하므로 PostgreSQL에서는 같은 동작을 재현할 수 없어 DB 검증을 생략한다.",
+  ox: ["정답이에요. (가)·(라)는 1을 포함하지 않아 0건, (나)는 굳힌 번호라 2건, (다)는 1부터라 3건이에요.", "이렇게 생각하면 틀려요: 'ROWNUM은 미리 붙어 있는 고정 번호다'. ROWNUM은 통과할 때 붙는 번호라서 1을 건너뛸 수 없어요.", "이렇게 생각하면 틀려요: '안쪽에서 만든 RN도 ROWNUM처럼 움직인다'. 별칭 RN은 이미 계산이 끝난 보통 값이에요.", "이렇게 생각하면 틀려요: 'BETWEEN 2 AND 3이면 2, 3번째 행이 나온다'. 1을 포함하지 않아서 (가)와 같은 이유로 0건이에요."],
+  trap: "ROWNUM 조건은 '= 1', '<= N', '< N', 'BETWEEN 1 AND N'처럼 1을 포함하는 모양만 제대로 동작해요. ROWNUM은 실제로 읽히는 순서에 따라 달라져서 PostgreSQL로 똑같이 재현할 수 없어 DB 검증은 생략했어요.",
   memo: "ROWNUM > n, = 2 → 0건 / 고정하려면 인라인 뷰 별칭"
 },
 {
@@ -447,15 +502,17 @@
   sql: "(가) SELECT ID FROM\n      (SELECT ID, ROW_NUMBER() OVER (ORDER BY SAL DESC, ID) AS RN FROM T)\n     WHERE RN BETWEEN 4 AND 6;\n\n(나) SELECT ID FROM\n      (SELECT ID, RANK() OVER (ORDER BY SAL DESC) AS RK FROM T)\n     WHERE RK BETWEEN 4 AND 6;\n\n(다) SELECT ID FROM T\n     ORDER BY SAL DESC, ID\n    OFFSET 3 ROWS FETCH NEXT 3 ROWS ONLY;",
   o: ["(가) 4, 5, 6 / (나) 5, 6, 7 / (다) 4, 5, 6", "(가) 4, 5, 6 / (나) 4, 5, 6 / (다) 4, 5, 6", "(가) 4, 5, 6 / (나) 5, 6, 7 / (다) 3, 4, 5", "(가) 4, 5, 6 / (나) 6, 7, 8 / (다) 4, 5, 6"],
   a: 0,
-  why: "(가) ROW_NUMBER는 동점이 있어도 1~8을 빠짐없이 매기므로 4~6번째인 ID 4, 5, 6이다. (다) OFFSET 3 ROWS는 앞의 3행을 '건너뛰고' 4번째 행부터 3행을 가져오므로 (가)와 같다. (나) RANK는 800 세 명이 공동 2위가 되고 다음 순위가 5로 건너뛰므로 RK 4인 행은 없고, 5위(ID 5)와 공동 6위(ID 6, 7)가 나온다.",
+  sum: "ROW_NUMBER와 OFFSET은 동점이 있어도 1, 2, 3 … 빠짐없이 세서 둘 다 4, 5, 6이에요. RANK는 공동 2위 뒤로 4위가 없어서 5, 6, 7이에요.",
+  why: "(가) ROW_NUMBER는 동점이 있어도 1부터 8까지 빈틈없이 번호를 매겨요. 4~6번째는 ID 4, 5, 6이에요.\n\n(다) OFFSET 3 ROWS는 '앞의 3행을 건너뛴다'는 뜻이에요. 그다음 FETCH NEXT 3 ROWS ONLY로 4번째부터 3행을 가져와요. 그래서 (가)와 같은 ID 4, 5, 6이에요.\n\n(나) RANK는 동점에게 같은 순위를 주고 그 수만큼 다음 순위를 건너뛰어요. **800인 ID 2, 3, 4가 공동 2위가 되면 3위와 4위는 아예 없고, 다음은 5위예요.**\n\n그래서 RANK로 4~6위를 찾으면 4위는 없고, 5위 ID 5(700)와 공동 6위 ID 6, 7(600)이 나와요. ID 8(500)은 8위라 빠져요.\n\n결론은 (가) 4, 5, 6 / (나) 5, 6, 7 / (다) 4, 5, 6이에요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "-- (가) 빈틈없는 번호 1~8 (동점은 ID로 순서를 정함) → 4~6번째\nSELECT ID FROM\n  (SELECT ID, ROW_NUMBER() OVER (ORDER BY SAL DESC, ID) AS RN FROM T)\n WHERE RN BETWEEN 4 AND 6;\n-- (나) 동점은 같은 순위, 다음은 건너뜀: 1, 2, 2, 2, 5, 6, 6, 8 → 4~6위\nSELECT ID FROM\n  (SELECT ID, RANK() OVER (ORDER BY SAL DESC) AS RK FROM T)\n WHERE RK BETWEEN 4 AND 6;\n-- (다) 정렬 후 앞의 3행을 건너뛰고 3행을 가져와요\nSELECT ID FROM T\n ORDER BY SAL DESC, ID\nOFFSET 3 ROWS FETCH NEXT 3 ROWS ONLY;" },
     { t: "[원본] SAL 내림차순, ID 오름차순", tb: { c: ["ID", "SAL", "ROW_NUMBER", "RANK", "DENSE_RANK"], r: [[1, 900, 1, 1, 1], [2, 800, 2, 2, 2], [3, 800, 3, 2, 2], [4, 800, 4, 2, 2], [5, 700, 5, 5, 3], [6, 600, 6, 6, 4], [7, 600, 7, 6, 4], [8, 500, 8, 8, 5]] } },
     { t: "[1단계] 4 ~ 6 범위", tb: { c: ["SQL", "기준", "ID"], r: [["(가)", "ROW_NUMBER 4~6", "4, 5, 6"], ["(나)", "RANK 4~6", "5, 6, 7"], ["(다)", "3행 건너뛰고 3행", "4, 5, 6"]], hl: [1] } }
   ],
   res: { c: ["가", "나", "다"], r: [["4,5,6", "5,6,7", "4,5,6"]] },
   pg: "SELECT (SELECT STRING_AGG(ID::text, ',' ORDER BY ID) FROM (SELECT ID, ROW_NUMBER() OVER (ORDER BY SAL DESC, ID) RN FROM T) A WHERE RN BETWEEN 4 AND 6), (SELECT STRING_AGG(ID::text, ',' ORDER BY ID) FROM (SELECT ID, RANK() OVER (ORDER BY SAL DESC) RK FROM T) B WHERE RK BETWEEN 4 AND 6), (SELECT STRING_AGG(ID::text, ',' ORDER BY ID) FROM (SELECT ID FROM T ORDER BY SAL DESC, ID OFFSET 3 ROWS FETCH NEXT 3 ROWS ONLY) C)",
-  ox: ["정답.", "RANK도 ROW_NUMBER처럼 동점 없이 순번을 매긴다고 본 경우다.", "OFFSET 3을 '3번째 행부터'로 읽은 경우다. OFFSET n은 n행을 건너뛴다.", "RANK를 DENSE_RANK(건너뛰지 않는 순위)로 착각한 경우다."],
-  trap: "페이징에는 중복 없이 연속된 번호가 필요하므로 ROW_NUMBER를 쓰고, ORDER BY에 고유 컬럼(ID)을 더해 순서를 결정적으로 만들어야 한다. 그렇지 않으면 페이지 사이에서 행이 빠지거나 겹칠 수 있다.",
+  ox: ["정답이에요. ROW_NUMBER와 OFFSET은 4~6번째 행인 ID 4, 5, 6이고, RANK는 4위가 없어 5위 ID 5와 공동 6위 ID 6, 7이에요.", "이렇게 생각하면 틀려요: 'RANK도 동점 없이 차례로 번호를 매긴다'. RANK는 동점에게 같은 순위를 주고 다음을 건너뛰어요.", "이렇게 생각하면 틀려요: 'OFFSET 3은 3번째 행부터다'. OFFSET 3은 3행을 건너뛰니 4번째부터예요.", "이렇게 생각하면 틀려요: 'RANK는 건너뛰지 않는다'(DENSE_RANK처럼 1, 2, 2, 2, 3, 4, 4, 5). RANK는 건너뛰어서 4위가 없어요."],
+  trap: "페이지 나누기에는 빠짐없는 연속 번호가 필요하니 ROW_NUMBER를 쓰고, ORDER BY에 겹치지 않는 컬럼(ID)을 더해 순서를 확정해야 해요. 그렇지 않으면 페이지 사이에서 행이 빠지거나 겹칠 수 있어요.",
   memo: "페이징 = ROW_NUMBER 또는 OFFSET n(=n행 건너뜀)"
 },
 {
@@ -466,15 +523,17 @@
   sql: "(가) SELECT ID FROM T ORDER BY SAL DESC\n     FETCH FIRST 4 ROWS ONLY;\n(나) SELECT ID FROM T ORDER BY SAL DESC\n     FETCH FIRST 4 ROWS WITH TIES;\n(다) SELECT ID FROM T ORDER BY SAL DESC\n     FETCH FIRST 30 PERCENT ROWS ONLY;",
   o: ["4, 6, 3", "4, 6, 2", "4, 4, 3", "6, 6, 3"],
   a: 0,
-  why: "(가) ROWS ONLY는 정확히 4행에서 자른다. (나) WITH TIES는 마지막(4번째) 행과 ORDER BY 값이 같은 행을 모두 더한다. 4번째 행의 SAL은 700이고 700인 행이 ID 4, 5, 6의 세 개이므로 6행이 된다. (다) PERCENT는 전체 행 수의 비율로 자르며 소수점은 올림한다. 7 × 0.3 = 2.1 → 3행이다.",
+  sum: "ROWS ONLY는 딱 4행, WITH TIES는 4번째 값(700)과 같은 행까지 붙여 6행이에요. PERCENT는 7 × 30% = 2.1을 올림해서 3행이에요.",
+  why: "FETCH FIRST는 정렬된 결과에서 앞쪽 일부만 잘라 가져와요. 자르는 방식은 세 가지예요.\n\n(가) ROWS ONLY는 정확히 4행에서 잘라요. ID 1, 2, 3, 4예요.\n\n(나) WITH TIES는 '마지막으로 잘린 행과 정렬 값이 같은 행'을 모두 덧붙여요. **4번째 행의 SAL은 700이고, 700인 행이 ID 4, 5, 6 세 개라서 6행이 돼요.** 중간의 800 동점은 상관없어요. 비교 대상은 마지막 행의 값 하나뿐이에요.\n\n동점자 중 일부만 잘리면 불공평하니, 동점은 같이 데려가라는 옵션이에요.\n\n(다) PERCENT는 전체 행 수의 비율로 잘라요. 7 × 30% = 2.1행인데, 행을 소수로 가져올 수는 없으니 올림해서 3행이에요.\n\n결론은 4, 6, 3이에요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "SELECT ID FROM T ORDER BY SAL DESC     -- ① SAL 큰 순서: 900, 800, 800, 700, 700, 700, 600\n FETCH FIRST 4 ROWS ONLY;              -- (가) 딱 4행에서 잘라요 → 4\nSELECT ID FROM T ORDER BY SAL DESC\n FETCH FIRST 4 ROWS WITH TIES;         -- (나) 4번째 값 700과 같은 행까지 → 6\nSELECT ID FROM T ORDER BY SAL DESC\n FETCH FIRST 30 PERCENT ROWS ONLY;     -- (다) 7 × 0.3 = 2.1 → 올림 3" },
     { t: "[원본] SAL 내림차순", tb: { c: ["순서", "ID", "SAL"], r: [[1, 1, 900], [2, 2, 800], [3, 3, 800], [4, 4, 700], [5, 5, 700], [6, 6, 700], [7, 7, 600]], hl: [3] } },
     { t: "[1단계] 자르는 기준", tb: { c: ["SQL", "기준", "건수"], r: [["(가)", "4행", 4], ["(나)", "4행 + 4번째 값(700)과 같은 행", 6], ["(다)", "CEIL(7 × 30 ÷ 100) = CEIL(2.1)", 3]] } }
   ],
   res: { c: ["가", "나", "다"], r: [[4, 6, 3]] },
   pg: "SELECT (SELECT COUNT(*) FROM (SELECT ID FROM T ORDER BY SAL DESC FETCH FIRST 4 ROWS ONLY) A), (SELECT COUNT(*) FROM (SELECT ID FROM T ORDER BY SAL DESC FETCH FIRST 4 ROWS WITH TIES) B), (SELECT COUNT(*) FROM (SELECT ID FROM T ORDER BY SAL DESC LIMIT (SELECT CEIL(COUNT(*) * 30 / 100.0)::int FROM T)) C)",
-  ox: ["정답.", "PERCENT의 행 수를 내림(2.1 → 2)한 경우다. Oracle은 올림한다.", "WITH TIES를 무시하거나, 4번째 행 뒤에 같은 값이 있는지 확인하지 않은 경우다.", "ROWS ONLY에도 동점 행이 붙는다고 본 경우다."],
-  trap: "WITH TIES는 ORDER BY가 반드시 있어야 의미가 있고, 동점 비교 대상은 '마지막으로 잘린 행의 값' 하나뿐이다. 중간에 있는 동점(800, 800)은 결과 건수에 영향을 주지 않는다. PostgreSQL에는 PERCENT가 없어 LIMIT(올림 행 수)로 재현해 검증했다.",
+  ox: ["정답이에요. 딱 4행, 700 동점까지 6행, 2.1을 올림해 3행이에요.", "이렇게 생각하면 틀려요: 'PERCENT는 소수점을 버린다'(2.1 → 2). Oracle은 올림해요.", "이렇게 생각하면 틀려요: 'WITH TIES도 4행에서 끝난다'. 4번째 값 700과 같은 ID 5, 6도 붙어요.", "이렇게 생각하면 틀려요: 'ROWS ONLY에도 동점 행이 붙는다'. 동점을 붙이는 건 WITH TIES뿐이에요."],
+  trap: "WITH TIES는 ORDER BY가 꼭 있어야 의미가 있고, 동점 비교는 '마지막으로 잘린 행의 값' 하나만 봐요. 중간 동점(800, 800)은 건수에 영향을 주지 않아요. PostgreSQL에는 PERCENT가 없어서 올림한 행 수로 LIMIT를 걸어 검증했어요.",
   memo: "WITH TIES = 마지막 값 동점까지 / PERCENT = 올림"
 },
 {
@@ -485,16 +544,19 @@
   sql: "SELECT ID\n  FROM (SELECT ROWNUM AS RN, ID, SAL\n          FROM T\n         ORDER BY SAL DESC)\n WHERE RN <= 2;",
   o: ["2, 1", "2, 4", "오류가 발생한다", "결과가 없다"],
   a: 0,
-  why: "인라인 뷰 안에서도 ROWNUM은 ORDER BY보다 먼저 붙는다. 읽힌 순서대로 ID 1 → RN 1, ID 2 → RN 2, ID 3 → RN 3, ID 4 → RN 4가 붙은 뒤 SAL 내림차순으로 정렬된다. 바깥 WHERE RN <= 2는 이미 고정된 RN 값으로 거르므로 RN 1, 2인 ID 1, 2가 남고, 정렬된 순서대로 ID 2(500), ID 1(300)이 출력된다. 급여 상위 2명(ID 2, 4)과 다르다.",
+  sum: "인라인 뷰 안에서도 ROWNUM은 정렬보다 먼저 붙어요. 그래서 읽힌 순서로 1, 2번인 ID 1, 2가 남고, 급여 상위 2명(ID 2, 4)이 아니에요.",
+  why: "**ROWNUM은 같은 SELECT 안의 ORDER BY보다 항상 먼저 붙어요. 인라인 뷰 안이라도 똑같아요.**\n\n인라인 뷰 안에서는 읽는 순서대로 ID 1 → RN 1, ID 2 → RN 2, ID 3 → RN 3, ID 4 → RN 4가 붙어요. 그다음 SAL 내림차순으로 줄을 서서 ID 2(RN 2), ID 4(RN 4), ID 1(RN 1), ID 3(RN 3) 순서가 돼요.\n\n바깥 WHERE RN <= 2는 이미 정해진 RN 값을 비교해요. RN이 1, 2인 ID 1과 ID 2만 남아요.\n\n인라인 뷰가 정렬해 둔 순서는 그대로 유지돼서 ID 2(500), ID 1(300) 순서로 나와요.\n\n급여 상위 2명은 ID 2, 4인데 결과가 다른 이유는, 번호가 정렬 전에 붙었기 때문이에요.\n\n결론은 2, 1이에요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "SELECT ID\n  FROM (SELECT ROWNUM AS RN, ID, SAL  -- ① 읽는 순서대로 RN 1~4가 먼저 붙어요\n          FROM T\n         ORDER BY SAL DESC)           -- ② 그다음 SAL 큰 순서로 줄을 서요 (RN은 그대로)\n WHERE RN <= 2;                       -- ③ 고정된 RN 1, 2 → ID 1, ID 2" },
     { t: "[원본] 읽은 순서로 ROWNUM 부여", tb: { c: ["RN", "ID", "SAL"], r: [[1, 1, 300], [2, 2, 500], [3, 3, 100], [4, 4, 400]] } },
     { t: "[1단계] 인라인 뷰 ORDER BY SAL DESC", tb: { c: ["RN", "ID", "SAL"], r: [[2, 2, 500], [4, 4, 400], [1, 1, 300], [3, 3, 100]] } },
-    { t: "[2단계] 바깥 WHERE RN <= 2", tb: { c: ["ID"], r: [[2], [1]] } }
+    { t: "[2단계] 바깥 WHERE RN <= 2", tb: { c: ["ID"], r: [[2], [1]] } },
+    { t: "의도대로 쓰려면: 정렬을 한 겹 더 안쪽으로", n: "SELECT ID\n  FROM (SELECT ROWNUM AS RN, ID, SAL\n          FROM (SELECT ID, SAL FROM T ORDER BY SAL DESC))  -- 먼저 정렬\n WHERE RN <= 2;                                           -- 정렬된 순서로 번호\n-- 2, 4 (급여 상위 2명)" }
   ],
   res: { c: ["ID"], r: [[2], [1]] },
   pg: "SELECT ID FROM (SELECT ROW_NUMBER() OVER (ORDER BY ID) RN, ID, SAL FROM T) X WHERE RN <= 2 ORDER BY SAL DESC",
-  ox: ["정답.", "인라인 뷰에서 정렬이 끝난 뒤 ROWNUM이 붙는다고 본 경우다. 그렇게 하려면 정렬용 인라인 뷰를 한 겹 더 감싸야 한다.", "인라인 뷰에는 ORDER BY를 쓸 수 없다고 착각한 경우다. Top-N을 위해 인라인 뷰의 ORDER BY는 허용된다.", "바깥의 RN을 ROWNUM처럼 다시 매기는 값으로 본 경우다. 별칭 RN은 고정값이라 정상적으로 걸러진다."],
-  trap: "ROWNUM과 ORDER BY가 '같은 SELECT 블록'에 있으면 인라인 뷰 안이든 밖이든 정렬 전 번호다. 정렬은 안쪽 블록, ROWNUM은 바깥 블록에 두어야 Top-N이 된다.",
+  ox: ["정답이에요. 정렬 전에 RN 1, 2를 받은 ID 1, 2가 남고, 정렬된 순서대로 ID 2, ID 1이 나와요.", "이렇게 생각하면 틀려요: '인라인 뷰에서 정렬이 끝난 뒤 번호가 붙는다'. 그렇게 하려면 정렬용 인라인 뷰를 한 겹 더 감싸야 해요.", "이렇게 생각하면 틀려요: '인라인 뷰에는 ORDER BY를 못 쓴다'. Top-N을 위해 인라인 뷰의 ORDER BY는 허용돼요.", "이렇게 생각하면 틀려요: '바깥의 RN도 ROWNUM처럼 다시 매겨져 걸러지지 않는다'. RN은 굳혀 둔 보통 값이라 정상적으로 걸러져요."],
+  trap: "ROWNUM과 ORDER BY가 '같은 SELECT'에 있으면 인라인 뷰 안이든 밖이든 정렬 전 번호예요. 정렬은 안쪽, ROWNUM은 바깥에 둬야 Top-N이 돼요.",
   memo: "같은 블록의 ROWNUM은 정렬 전 번호"
 },
 {
@@ -505,16 +567,19 @@
   sql: "(가) SELECT *\n      FROM SALES\n     PIVOT (SUM(AMT) FOR QTR IN ('Q1' AS Q1, 'Q2' AS Q2));\n\n(나) SELECT *\n      FROM (SELECT DEPT, QTR, AMT FROM SALES)\n     PIVOT (SUM(AMT) FOR QTR IN ('Q1' AS Q1, 'Q2' AS Q2));",
   o: ["4, 2, NULL", "2, 2, NULL", "4, 2, 0", "2, 2, 0"],
   a: 0,
-  why: "PIVOT은 집계 함수에 쓴 컬럼(AMT)과 FOR 절의 컬럼(QTR)을 뺀 '나머지 모든 컬럼'으로 암묵적으로 GROUP BY한다. (가)는 나머지 컬럼이 ID, DEPT이고 ID가 행마다 다르므로 4행이 그대로 남는다. (나)는 인라인 뷰에서 ID를 뺐으므로 DEPT만으로 묶여 A, B의 2행이 된다. B 부서에는 Q2 데이터가 없으므로 그 칸은 0이 아니라 NULL이다.",
+  sum: "PIVOT은 집계 컬럼과 FOR 컬럼을 뺀 '나머지 컬럼 전부'로 묶어요. 테이블을 바로 쓰면 ID까지 묶여 4행, 인라인 뷰로 ID를 빼면 2행이고, 없는 칸은 NULL이에요.",
+  why: "PIVOT은 행을 컬럼으로 돌려 세우면서 몰래 GROUP BY를 해요. 묶는 기준은 집계 함수 안의 컬럼(AMT)과 FOR 뒤의 컬럼(QTR)을 뺀 '나머지 모든 컬럼'이에요.\n\n**그래서 FROM에 무엇을 넣느냐에 따라 묶는 기준이 달라져요.** 내가 GROUP BY를 적지 않으니, 남은 컬럼을 다 기준으로 삼는 거예요.\n\n(가)는 테이블을 바로 PIVOT해요. 나머지 컬럼이 ID, DEPT예요. ID가 행마다 달라서 하나도 안 묶이고 4행이 그대로 남아요.\n\n(나)는 인라인 뷰에서 DEPT, QTR, AMT만 골랐어요. 나머지 컬럼은 DEPT뿐이라 A, B의 2행으로 묶여요. A는 Q1이 100 + 200 = 300, Q2가 300이에요.\n\nB는 Q1 데이터(400)만 있고 Q2 데이터가 없어요. 더할 값이 하나도 없으면 SUM은 0이 아니라 NULL이에요.\n\n결론은 4, 2, NULL이에요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "-- (가) 나머지 컬럼 = ID, DEPT → ID가 다 달라서 4행 그대로\nSELECT *\n  FROM SALES\n PIVOT (SUM(AMT) FOR QTR IN ('Q1' AS Q1, 'Q2' AS Q2));\n-- (나) 인라인 뷰에서 ID를 빼서 나머지 컬럼 = DEPT → A, B 2행\nSELECT *\n  FROM (SELECT DEPT, QTR, AMT FROM SALES)\n PIVOT (SUM(AMT) FOR QTR IN ('Q1' AS Q1, 'Q2' AS Q2));\n-- B의 Q2: 더할 데이터가 없어서 NULL" },
     { t: "[원본] 그룹 기준 컬럼", tb: { c: ["SQL", "나머지 컬럼(그룹 기준)", "그룹 수"], r: [["(가)", "ID, DEPT", 4], ["(나)", "DEPT", 2]] } },
     { t: "[1단계] (가) 결과", tb: { c: ["ID", "DEPT", "Q1", "Q2"], r: [[1, "A", 100, null], [2, "A", 200, null], [3, "A", null, 300], [4, "B", 400, null]] } },
-    { t: "[2단계] (나) 결과", tb: { c: ["DEPT", "Q1", "Q2"], r: [["A", 300, 300], ["B", 400, null]], hl: [1] } }
+    { t: "[2단계] (나) 결과", tb: { c: ["DEPT", "Q1", "Q2"], r: [["A", 300, 300], ["B", 400, null]], hl: [1] } },
+    { t: "참고: 빈 칸을 0으로 보이게 하려면", n: "SELECT DEPT, NVL(Q1, 0) AS Q1, NVL(Q2, 0) AS Q2\n  FROM (SELECT DEPT, QTR, AMT FROM SALES)\n PIVOT (SUM(AMT) FOR QTR IN ('Q1' AS Q1, 'Q2' AS Q2));\n-- A 300 300 / B 400 0" }
   ],
   res: { c: ["가_행수", "나_행수", "B_Q2"], r: [[4, 2, null]] },
   pg: "SELECT (SELECT COUNT(*) FROM (SELECT ID, DEPT, SUM(AMT) FILTER (WHERE QTR = 'Q1') Q1, SUM(AMT) FILTER (WHERE QTR = 'Q2') Q2 FROM SALES GROUP BY ID, DEPT) A), (SELECT COUNT(*) FROM (SELECT DEPT, SUM(AMT) FILTER (WHERE QTR = 'Q1') Q1, SUM(AMT) FILTER (WHERE QTR = 'Q2') Q2 FROM SALES GROUP BY DEPT) B), (SELECT SUM(AMT) FILTER (WHERE QTR = 'Q2') FROM SALES WHERE DEPT = 'B')",
-  ox: ["정답.", "(가)도 DEPT로만 묶인다고 본 경우다. 테이블을 직접 PIVOT하면 ID까지 그룹 기준이 된다.", "데이터가 없는 칸을 0으로 채운다고 본 경우다.", "두 가지 함정(암묵적 그룹 기준, 빈 칸 NULL)에 모두 걸린 경우다."],
-  trap: "PIVOT 문제에서는 먼저 FROM 절이 무엇인지 확인한다. 테이블을 바로 PIVOT하면 의도하지 않은 컬럼(ID, 날짜 등)까지 그룹 기준이 되어 행이 줄지 않는다.",
+  ox: ["정답이에요. (가)는 ID까지 묶는 기준이라 4행, (나)는 DEPT만 기준이라 2행, B의 Q2는 데이터가 없어 NULL이에요.", "이렇게 생각하면 틀려요: '(가)도 DEPT로만 묶인다'. 테이블을 바로 PIVOT하면 ID까지 묶는 기준이 돼요.", "이렇게 생각하면 틀려요: '데이터가 없는 칸은 0이다'. 더할 값이 없으면 SUM은 NULL이에요.", "이렇게 생각하면 틀려요: 두 함정에 모두 걸렸어요. 나머지 컬럼 전부가 묶는 기준이고, 빈 칸은 NULL이에요."],
+  trap: "PIVOT 문제는 먼저 FROM에 무엇이 있는지 확인해요. 테이블을 바로 PIVOT하면 의도하지 않은 컬럼(ID, 날짜 등)까지 묶는 기준이 되어 행이 줄지 않아요.",
   memo: "PIVOT 그룹 기준 = 나머지 컬럼 전부 → 인라인 뷰로 골라라"
 },
 {
@@ -525,16 +590,18 @@
   sql: "(가) SELECT ID, QTR, AMT\n      FROM T\n   UNPIVOT (AMT FOR QTR IN (Q1, Q2, Q3));\n\n(나) SELECT ID, QTR, AMT\n      FROM T\n   UNPIVOT INCLUDE NULLS (AMT FOR QTR IN (Q1, Q2, Q3));",
   o: ["4, 9, 2", "9, 9, 3", "4, 9, 3", "4, 4, 2"],
   a: 0,
-  why: "UNPIVOT은 컬럼 Q1~Q3을 행으로 펼쳐 원본 1행당 최대 3행을 만든다. 기본값은 EXCLUDE NULLS라서 값이 NULL인 칸은 행으로 만들지 않는다. (가)는 ID 1에서 2행, ID 2에서 0행, ID 3에서 2행으로 4행이고, 모든 값이 NULL인 ID 2는 결과에서 사라진다. (나) INCLUDE NULLS는 NULL 칸도 행으로 만들어 3 × 3 = 9행이다.",
+  sum: "UNPIVOT은 기본으로 NULL 칸을 행으로 만들지 않아요. 그래서 (가)는 4행이고 모든 칸이 NULL인 ID 2는 사라져요. INCLUDE NULLS를 쓰면 9행이에요.",
+  why: "UNPIVOT은 PIVOT의 반대예요. Q1, Q2, Q3 세 컬럼을 'QTR, AMT' 두 컬럼의 행으로 풀어 내려요. 원래 1행이 최대 3행이 돼요.\n\n**기본값은 EXCLUDE NULLS라서, 값이 NULL인 칸은 행으로 만들지 않아요.** 빈 칸까지 행으로 만들면 쓸모없는 행이 많아지니 기본으로 빼는 거예요.\n\n(가)를 행별로 볼게요. ID 1은 Q1 10, Q3 30이 있어 2행이에요(Q2는 NULL이라 빠져요). ID 2는 세 칸이 다 NULL이라 0행이에요. ID 3은 Q1 40, Q2 50이 있어 2행이에요.\n\n그래서 (가)는 4행이고, ID 2는 결과에서 아예 사라져서 서로 다른 ID는 1, 3의 2개예요.\n\n(나)는 INCLUDE NULLS라 NULL 칸도 행으로 만들어요. 3행 × 3칸 = 9행이에요.\n\n결론은 4, 9, 2예요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "-- (가) 기본 = EXCLUDE NULLS: 값이 있는 칸만 행으로\nSELECT ID, QTR, AMT\n  FROM T                                   -- 3행\nUNPIVOT (AMT FOR QTR IN (Q1, Q2, Q3));     -- ID 1 → 2행, ID 2 → 0행, ID 3 → 2행\n-- (나) NULL 칸도 행으로\nSELECT ID, QTR, AMT\n  FROM T\nUNPIVOT INCLUDE NULLS (AMT FOR QTR IN (Q1, Q2, Q3));  -- 3 × 3 = 9행" },
     { t: "[원본] NULL이 아닌 칸 수", tb: { c: ["ID", "Q1", "Q2", "Q3", "NULL 아닌 칸"], r: [[1, 10, null, 30, 2], [2, null, null, null, 0], [3, 40, 50, null, 2]] } },
     { t: "[1단계] (가) EXCLUDE NULLS 결과", tb: { c: ["ID", "QTR", "AMT"], r: [[1, "Q1", 10], [1, "Q3", 30], [3, "Q1", 40], [3, "Q2", 50]] }, n: "ID 2는 한 행도 남지 않는다." },
     { t: "[2단계] 정리", tb: { c: ["SQL", "행 수", "서로 다른 ID"], r: [["(가)", 4, 2], ["(나)", 9, 3]] } }
   ],
   res: { c: ["가_행수", "나_행수", "가_ID수"], r: [[4, 9, 2]] },
   pg: "SELECT (SELECT COUNT(*) FROM T CROSS JOIN LATERAL (VALUES ('Q1', T.Q1), ('Q2', T.Q2), ('Q3', T.Q3)) U(QTR, AMT) WHERE U.AMT IS NOT NULL), (SELECT COUNT(*) FROM T CROSS JOIN LATERAL (VALUES ('Q1', T.Q1), ('Q2', T.Q2), ('Q3', T.Q3)) U(QTR, AMT)), (SELECT COUNT(DISTINCT T.ID) FROM T CROSS JOIN LATERAL (VALUES ('Q1', T.Q1), ('Q2', T.Q2), ('Q3', T.Q3)) U(QTR, AMT) WHERE U.AMT IS NOT NULL)",
-  ox: ["정답.", "UNPIVOT의 기본값이 INCLUDE NULLS라고 본 경우다.", "값이 모두 NULL인 ID 2도 최소 한 행은 남는다고 본 경우다.", "INCLUDE NULLS를 써도 NULL 칸이 제외된다고 본 경우다."],
-  trap: "UNPIVOT 결과에서 특정 원본 행이 통째로 사라질 수 있다는 점이 함정이다. 원본 행 수를 유지해야 하면 INCLUDE NULLS를 명시한다.",
+  ox: ["정답이에요. NULL이 아닌 칸만 행이 돼서 4행, INCLUDE NULLS는 9행, (가)에 남는 ID는 1과 3의 2개예요.", "이렇게 생각하면 틀려요: 'UNPIVOT은 기본으로 NULL 칸도 행으로 만든다'. 기본은 EXCLUDE NULLS예요.", "이렇게 생각하면 틀려요: '모든 칸이 NULL인 ID 2도 최소 한 행은 남는다'. NULL 칸은 행이 안 되니 ID 2는 통째로 사라져요.", "이렇게 생각하면 틀려요: 'INCLUDE NULLS를 써도 NULL 칸은 빠진다'. INCLUDE NULLS는 NULL 칸도 행으로 만들어요."],
+  trap: "UNPIVOT 결과에서 원래 행 하나가 통째로 사라질 수 있다는 점이 함정이에요. 원래 행을 모두 남겨야 하면 INCLUDE NULLS를 적어요.",
   memo: "UNPIVOT 기본 = EXCLUDE NULLS"
 },
 {
@@ -544,16 +611,18 @@
   sql: "SELECT REGEXP_SUBSTR('<x><yz><w>', '<.*>')           AS 가,\n       REGEXP_SUBSTR('<x><yz><w>', '<.*?>', 1, 2)    AS 나,\n       REGEXP_SUBSTR('<x><yz><w>', '<[^>]+>', 1, 3)  AS 다\n  FROM DUAL;",
   o: ["<x><yz><w> / <yz> / <w>", "<x> / <yz> / <w>", "<x><yz><w> / NULL / <w>", "<x><yz><w> / <x> / <w>"],
   a: 0,
-  why: "* 와 + 는 기본적으로 탐욕적(greedy)이라 가능한 한 길게 매칭한다. (가)의 '<.*>'는 첫 '<'에서 시작해 마지막 '>'까지 문자열 전체를 가져간다. 수량자 뒤에 ?를 붙인 '.*?'는 비탐욕적(non-greedy)이라 가장 짧게 끊으므로 '<x>', '<yz>', '<w>'가 차례로 매칭되고, 네 번째 인수 2(occurrence)에 따라 두 번째인 '<yz>'가 반환된다. (다)의 '[^>]+'는 '>'가 아닌 문자만 허용하므로 태그 하나씩 끊기고, 세 번째 매칭은 '<w>'다.",
+  sum: ".*는 최대한 길게 잡아서 문자열 전체를, .*?는 최대한 짧게 잡아서 태그 하나씩을 찾아요. 그래서 (나)의 2번째는 <yz>, (다)의 3번째는 <w>예요.",
+  why: "*와 +는 기본적으로 '욕심쟁이(greedy)'예요. 매칭될 수 있는 한 최대한 길게 잡아요.\n\n(가)의 '<.*>'는 첫 '<'에서 시작해요. .*가 끝까지 먹은 뒤, 마지막 '>'까지 되돌아와 맞춰요. 그래서 '<x><yz><w>' 전체가 하나의 매칭이에요.\n\n**수량자 뒤에 ?를 붙인 '.*?'는 '최소한만' 잡아서, 처음 만나는 '>'에서 바로 멈춰요.** 그래서 (나)에서는 '<x>', '<yz>', '<w>'가 차례로 매칭돼요. 네 번째 인수 2는 '두 번째 매칭'이라 '<yz>'예요.\n\n(다)의 '[^>]+'는 '>가 아닌 글자 1개 이상'이에요. '>'를 건너뛸 수 없으니 태그 하나씩 끊겨요. 세 번째 매칭은 '<w>'예요.\n\n결론은 <x><yz><w> / <yz> / <w>예요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "SELECT REGEXP_SUBSTR('<x><yz><w>', '<.*>')          AS 가, -- 최대한 길게 → 전체 1개\n       REGEXP_SUBSTR('<x><yz><w>', '<.*?>', 1, 2)   AS 나, -- 최소한만 → <x>, <yz>, <w> 중 2번째\n       REGEXP_SUBSTR('<x><yz><w>', '<[^>]+>', 1, 3) AS 다  -- '>' 아닌 글자만 → 3번째\n  FROM DUAL;\n-- 인수 순서: (문자열, 패턴, 몇 번째 글자부터 찾을지, 몇 번째 매칭인지)" },
     { t: "[원본] 문자열", n: "<x><yz><w>" },
     { t: "[1단계] 패턴별 매칭 목록", tb: { c: ["SQL", "패턴", "매칭 1", "매칭 2", "매칭 3"], r: [["가", "<.*>", "<x><yz><w>", "—", "—"], ["나", "<.*?>", "<x>", "<yz>", "<w>"], ["다", "<[^>]+>", "<x>", "<yz>", "<w>"]] } },
     { t: "[2단계] occurrence 적용", tb: { c: ["SQL", "occurrence", "결과"], r: [["가", "1 (생략)", "<x><yz><w>"], ["나", 2, "<yz>"], ["다", 3, "<w>"]], hl: [1] } }
   ],
   res: { c: ["가", "나", "다"], r: [["<x><yz><w>", "<yz>", "<w>"]] },
   pg: "SELECT REGEXP_SUBSTR('<x><yz><w>', '<.*>'), REGEXP_SUBSTR('<x><yz><w>', '<.*?>', 1, 2), REGEXP_SUBSTR('<x><yz><w>', '<[^>]+>', 1, 3)",
-  ox: ["정답.", "'.*'가 첫 번째 '>'에서 멈춘다고 본 경우다. 탐욕적 수량자는 마지막 '>'까지 간다.", "'?'를 무시하고 (나)도 탐욕적으로 매칭해 두 번째 매칭이 없다고 본 경우다.", "occurrence 인수 2를 무시하고 첫 번째 매칭을 반환한다고 본 경우다."],
-  trap: "REGEXP_SUBSTR(문자열, 패턴, 시작위치, occurrence)에서 세 번째 인수는 '몇 번째 글자부터 찾을지', 네 번째 인수는 '몇 번째 매칭을 가져올지'다. 둘을 바꿔 읽기 쉽다.",
+  ox: ["정답이에요. (가)는 끝까지 길게 잡아 전체, (나)는 짧게 끊은 것 중 2번째 <yz>, (다)는 태그별로 끊은 것 중 3번째 <w>예요.", "이렇게 생각하면 틀려요: '.*는 첫 번째 >에서 멈춘다'. 기본 .*는 최대한 길게 잡아서 마지막 >까지 가요.", "이렇게 생각하면 틀려요: '?가 있어도 길게 잡으니 두 번째 매칭이 없다'. .*?는 짧게 잡아서 매칭이 3개 생겨요.", "이렇게 생각하면 틀려요: '네 번째 인수 2를 무시하고 첫 번째 매칭을 준다'. 2는 두 번째 매칭을 달라는 뜻이에요."],
+  trap: "REGEXP_SUBSTR(문자열, 패턴, 시작 위치, 몇 번째)에서 세 번째 인수는 '몇 번째 글자부터 찾을지', 네 번째 인수는 '몇 번째 매칭을 가져올지'예요. 둘을 바꿔 읽기 쉬워요.",
   memo: ".* 탐욕(최대) / .*? 비탐욕(최소)"
 },
 {
@@ -563,15 +632,17 @@
   sql: "SELECT REGEXP_REPLACE('2026-10-04',\n         '([0-9]{4})-([0-9]{2})-([0-9]{2})', '\\3/\\2/\\1')   AS 가,\n       REGEXP_REPLACE('010-1234-5678',\n         '([0-9]+)-([0-9]+)-([0-9]+)', '\\1-****-\\3')        AS 나,\n       REGEXP_REPLACE('ab12cd34', '[0-9]', '#')              AS 다\n  FROM DUAL;",
   o: ["04/10/2026 / 010-****-5678 / ab##cd##", "2026/10/04 / 010-****-5678 / ab##cd##", "04/10/2026 / 010-****-5678 / ab#2cd34", "04/10/2026 / 010-****-5678 / ab#cd#"],
   a: 0,
-  why: "괄호로 묶은 부분은 왼쪽 여는 괄호 순서대로 1, 2, 3번 그룹이 되고, 바꿀 문자열에서 \\1, \\2, \\3으로 다시 불러 쓸 수 있다(역참조). (가)는 연(\\1)·월(\\2)·일(\\3)을 \\3/\\2/\\1 순서로 재배열해 '04/10/2026'이 된다. (나)는 가운데 그룹만 ****로 바꾼다. (다)처럼 occurrence를 생략하면 Oracle REGEXP_REPLACE는 매칭되는 모든 곳을 바꾼다. 패턴 [0-9]는 숫자 한 글자이므로 숫자 4개가 각각 #이 된다.",
+  sum: "괄호로 묶은 부분은 \\1, \\2, \\3으로 다시 불러 순서를 바꿀 수 있어요. 그리고 Oracle REGEXP_REPLACE는 기본으로 맞는 곳을 전부 바꿔서 (다)는 ab##cd##예요.",
+  why: "패턴에서 괄호로 묶은 부분은 '그룹'이 돼요. 왼쪽 여는 괄호부터 1번, 2번, 3번이에요. 바꿀 문자열에서 \\1, \\2, \\3이라고 쓰면 그 그룹이 잡은 글자를 다시 불러와요(역참조).\n\n(가)는 2026이 \\1, 10이 \\2, 04가 \\3이에요. '\\3/\\2/\\1'로 순서를 거꾸로 이어 붙여 '04/10/2026'이 돼요.\n\n(나)는 010이 \\1, 1234가 \\2, 5678이 \\3이에요. '\\1-****-\\3'이라 가운데만 가려져서 '010-****-5678'이에요.\n\n**Oracle REGEXP_REPLACE는 몇 번째를 바꿀지 안 적으면, 맞는 곳을 모두 바꿔요.** (다)의 [0-9]는 숫자 한 글자예요. 숫자 1, 2, 3, 4가 각각 #이 돼서 'ab##cd##'예요.\n\n결론은 04/10/2026 / 010-****-5678 / ab##cd##예요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "SELECT REGEXP_REPLACE('2026-10-04',\n         '([0-9]{4})-([0-9]{2})-([0-9]{2})',   -- \\1=2026, \\2=10, \\3=04\n         '\\3/\\2/\\1')                         -- 거꾸로 이어 붙여요 → 04/10/2026\n         AS 가,\n       REGEXP_REPLACE('010-1234-5678',\n         '([0-9]+)-([0-9]+)-([0-9]+)',         -- \\1=010, \\2=1234, \\3=5678\n         '\\1-****-\\3')                        -- 가운데만 가려요 → 010-****-5678\n         AS 나,\n       REGEXP_REPLACE('ab12cd34', '[0-9]', '#') -- 숫자 한 글자마다, 전부 → ab##cd##\n         AS 다\n  FROM DUAL;" },
     { t: "[원본] (가) 그룹 분해", tb: { c: ["그룹", "패턴", "값"], r: [["\\1", "([0-9]{4})", "2026"], ["\\2", "([0-9]{2})", "10"], ["\\3", "([0-9]{2})", "04"]] } },
     { t: "[1단계] 치환 결과", tb: { c: ["SQL", "치환 규칙", "결과"], r: [["가", "\\3/\\2/\\1", "04/10/2026"], ["나", "\\1-****-\\3", "010-****-5678"], ["다", "숫자 한 글자마다 #", "ab##cd##"]], hl: [2] } }
   ],
   res: { c: ["가", "나", "다"], r: [["04/10/2026", "010-****-5678", "ab##cd##"]] },
   pg: "SELECT REGEXP_REPLACE('2026-10-04', '([0-9]{4})-([0-9]{2})-([0-9]{2})', '\\3/\\2/\\1'), REGEXP_REPLACE('010-1234-5678', '([0-9]+)-([0-9]+)-([0-9]+)', '\\1-****-\\3'), REGEXP_REPLACE('ab12cd34', '[0-9]', '#', 'g')",
-  ox: ["정답.", "역참조 번호와 상관없이 원래 순서대로 이어 붙인다고 본 경우다.", "REGEXP_REPLACE가 첫 번째 매칭만 바꾼다고 본 경우다. Oracle은 기본이 전체 치환이다(PostgreSQL은 'g' 플래그가 필요해 검증 SQL에 붙였다).", "[0-9]를 [0-9]+처럼 연속된 숫자 덩어리 하나로 본 경우다."],
-  trap: "Oracle REGEXP_REPLACE의 다섯 번째 인수 occurrence가 0(기본값)이면 전체, 1이면 첫 번째 매칭만 바꾼다. 문제에 인수가 몇 개인지 반드시 세어 보자.",
+  ox: ["정답이에요. 그룹 번호대로 다시 이어 붙이고, (다)는 숫자 네 글자를 모두 #으로 바꿔요.", "이렇게 생각하면 틀려요: '\\3/\\2/\\1이라고 써도 원래 순서대로 붙는다'. 적은 번호 순서대로 붙어서 순서가 뒤집혀요.", "이렇게 생각하면 틀려요: '첫 번째로 맞는 곳만 바꾼다'. Oracle은 기본이 전부 바꾸기예요(PostgreSQL은 'g' 옵션이 있어야 해서 검증 SQL에 붙였어요).", "이렇게 생각하면 틀려요: '[0-9]는 이어진 숫자 덩어리를 한 번에 잡는다'. 그건 [0-9]+예요. [0-9]는 숫자 한 글자예요."],
+  trap: "Oracle REGEXP_REPLACE의 다섯 번째 인수(몇 번째를 바꿀지)가 0이거나 없으면 전부, 1이면 첫 번째만 바꿔요. 문제에 인수가 몇 개인지 꼭 세어 봐요.",
   memo: "\\n = n번째 괄호, REGEXP_REPLACE 기본 = 전부 치환"
 },
 {
@@ -581,15 +652,17 @@
   sql: "SELECT REGEXP_COUNT('aaaa', 'aa')              AS 가,\n       REGEXP_COUNT('banana', 'ana')           AS 나,\n       REGEXP_COUNT('AbcABC', 'abc', 1, 'i')   AS 다\n  FROM DUAL;",
   o: ["2, 1, 2", "3, 2, 2", "2, 1, 0", "3, 2, 0"],
   a: 0,
-  why: "REGEXP_COUNT는 매칭을 찾으면 그 매칭이 끝난 다음 위치부터 다시 검색한다. 그래서 겹치는(overlapping) 매칭은 세지 않는다. 'aaaa'에서 'aa'는 1~2번째, 3~4번째 글자로 2번이다. 'banana'에서 'ana'는 2~4번째 글자에서 한 번 매칭된 뒤 5번째 글자부터 'na'만 남아 1번이다. 네 번째 인수 'i'는 대소문자를 구분하지 않는 옵션이라 'Abc', 'ABC'가 모두 'abc'와 매칭되어 2번이다.",
+  sum: "REGEXP_COUNT는 하나를 찾으면 그 끝 다음부터 다시 찾아서, 겹치는 매칭은 세지 않아요. 'i'는 대소문자를 무시하라는 옵션이에요. 그래서 2, 1, 2예요.",
+  why: "REGEXP_COUNT는 패턴이 몇 번 나오는지 세요. **매칭 하나를 찾으면, 그 매칭이 끝난 바로 다음 글자부터 다시 찾아요. 그래서 서로 겹치는 매칭은 세지 않아요.**\n\n(가) 'aaaa'에서 'aa'는 1~2번째 글자에서 하나 찾아요. 다음은 3번째 글자부터 찾아서 3~4번째로 또 하나예요. 2~3번째처럼 겹치는 건 안 세서 2예요.\n\n(나) 'banana'에서 'ana'는 2~4번째 글자(a-n-a)에서 찾아요. 다음은 5번째 글자부터인데 'na'만 남아서 더 없어요. 4~6번째 'ana'는 앞의 매칭과 4번째 글자가 겹쳐서 못 세요. 1이에요.\n\n(다)의 네 번째 인수 'i'는 대소문자를 구분하지 않는다는 옵션이에요. 'Abc'와 'ABC'가 둘 다 'abc'로 인정돼서 2예요. 세 번째 인수 1은 1번째 글자부터 찾으라는 뜻이에요.\n\n결론은 2, 1, 2예요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "SELECT REGEXP_COUNT('aaaa', 'aa')            AS 가, -- [aa][aa] → 2 (겹치는 건 안 셈)\n       REGEXP_COUNT('banana', 'ana')         AS 나, -- b[ana]na → 다음은 'na'부터라 1\n       REGEXP_COUNT('AbcABC', 'abc', 1, 'i') AS 다  -- 1번째 글자부터, 대소문자 무시 → 2\n  FROM DUAL;" },
     { t: "[원본] 매칭 위치 추적", tb: { c: ["SQL", "문자열", "매칭 위치", "다음 검색 시작"], r: [["가", "aaaa", "1~2, 3~4", "3, 5"], ["나", "banana", "2~4", "5 ('na'뿐)"], ["다", "AbcABC", "1~3, 4~6 ('i')", "4, 7"]] } },
     { t: "[1단계] 결과", tb: { c: ["가", "나", "다"], r: [[2, 1, 2]] } }
   ],
   res: { c: ["가", "나", "다"], r: [[2, 1, 2]] },
   pg: "SELECT REGEXP_COUNT('aaaa', 'aa'), REGEXP_COUNT('banana', 'ana'), REGEXP_COUNT('AbcABC', 'abc', 1, 'i')",
-  ox: ["정답.", "매칭이 겹쳐도 한 글자씩 옮겨 가며 센다고 본 경우다(aaaa → 3, banana → 2).", "'i' 옵션을 무시하고 대소문자를 구분해 0으로 본 경우다.", "겹침 계산과 'i' 옵션을 모두 잘못 처리한 경우다."],
-  trap: "REGEXP_COUNT의 세 번째 인수는 시작 위치, 네 번째 인수는 매칭 옵션('i' 대소문자 무시, 'c' 구분, 'n' 점이 줄바꿈과 매칭, 'm' 여러 줄)이다.",
+  ox: ["정답이에요. 겹치지 않게 세면 aaaa는 2, banana는 1이고, 'i' 옵션으로 Abc와 ABC가 다 맞아 2예요.", "이렇게 생각하면 틀려요: '한 글자씩 옮겨 가며 겹쳐도 센다'(aaaa → 3, banana → 2). 찾은 매칭이 끝난 다음부터 다시 찾아요.", "이렇게 생각하면 틀려요: 'i 옵션은 상관없고 대소문자를 구분한다'. 'i'는 대소문자를 무시하라는 뜻이라 2개가 맞아요.", "이렇게 생각하면 틀려요: 겹침 계산과 'i' 옵션을 둘 다 잘못 읽었어요."],
+  trap: "REGEXP_COUNT의 세 번째 인수는 시작 위치, 네 번째 인수는 옵션이에요('i' 대소문자 무시, 'c' 구분, 'n' 점(.)이 줄바꿈과도 맞음, 'm' 여러 줄 모드).",
   memo: "REGEXP_COUNT = 겹침 없이, 'i' = 대소문자 무시"
 },
 {
@@ -603,15 +676,18 @@
   sql: "MERGE INTO TGT T\nUSING SRC S\n   ON (T.ID = S.ID)\n WHEN MATCHED THEN\n      UPDATE SET T.V = S.V\n WHEN NOT MATCHED THEN\n      INSERT (ID, V) VALUES (S.ID, S.V);",
   o: ["(1, x), (2, z), (NULL, b), (NULL, y)", "(1, x), (2, z), (NULL, y)", "(1, x), (2, z), (NULL, b)", "ON 조건 컬럼에 NULL이 있어 오류가 발생한다"],
   a: 0,
-  why: "MERGE는 SRC의 각 행에 대해 ON 조건이 '참'인 TGT 행이 있으면 MATCHED, 없으면 NOT MATCHED로 처리한다. SRC의 (NULL, y)는 T.ID = NULL 비교가 UNKNOWN이라 TGT의 (NULL, b)와도 짝이 되지 않으므로 NOT MATCHED가 되어 새 행으로 INSERT된다. TGT의 (NULL, b)는 어떤 SRC 행과도 매칭되지 않아 그대로 남는다. 결국 NULL 키 행이 2개가 된다.",
+  sum: "NULL과 NULL을 = 로 비교하면 '같다'가 아니라 '모름'이 돼서 짝이 안 생겨요. 그래서 SRC의 (NULL, y)는 새 행으로 추가되고 TGT의 (NULL, b)도 그대로 남아요.",
+  why: "MERGE는 SRC의 행을 하나씩 보면서, ON 조건이 '참'이 되는 TGT 행이 있으면 MATCHED(짝 있음)로 UPDATE하고, 없으면 NOT MATCHED(짝 없음)로 INSERT해요.\n\n**NULL은 '모르는 값'이라서 NULL = NULL도 참이 아니라 '모름'이 돼요. 그래서 키가 NULL인 행끼리는 절대 짝이 되지 않아요.** 모르는 두 값이 같은지 알 수 없으니까요. 오류가 나는 것도 아니고, 그냥 짝이 없는 것으로 처리돼요.\n\nSRC를 한 행씩 볼게요. (1, x)는 TGT의 (1, a)와 짝이라 V가 x로 바뀌어요.\n\n(NULL, y)는 TGT의 (NULL, b)와 비교해도 '모름'이라 짝이 없어요. 그래서 새 행 (NULL, y)로 INSERT돼요. (2, z)는 짝이 없어서 INSERT돼요.\n\nTGT의 (NULL, b)는 아무 SRC 행과도 짝이 안 됐으니 그대로 남아요. 결국 NULL 키 행이 2개가 돼요.\n\n결론은 (1, x), (2, z), (NULL, b), (NULL, y)예요.",
   st: [
-    { t: "[원본] SRC 행별 ON 조건 평가", tb: { c: ["SRC 행", "T.ID = S.ID가 참인 TGT 행", "판정", "동작"], r: [["(1, x)", "(1, a)", "MATCHED", "UPDATE → (1, x)"], ["(NULL, y)", "없음 (NULL = NULL은 UNKNOWN)", "NOT MATCHED", "INSERT (NULL, y)"], ["(2, z)", "없음", "NOT MATCHED", "INSERT (2, z)"]], hl: [1] } },
-    { t: "[1단계] 최종 TGT", tb: { c: ["ID", "V"], r: [[1, "x"], [2, "z"], [null, "b"], [null, "y"]] } }
+    { t: "SQL 한 줄씩 읽기", n: "MERGE INTO TGT T                       -- 바꿀 대상: (1, a), (NULL, b)\nUSING SRC S                            -- ① SRC 행을 하나씩: (1, x), (NULL, y), (2, z)\n   ON (T.ID = S.ID)                    -- ② 짝 찾기: 1=1 참 / NULL=NULL 모름 / 2는 없음\n WHEN MATCHED THEN\n      UPDATE SET T.V = S.V             -- ③ (1, a) → (1, x)\n WHEN NOT MATCHED THEN\n      INSERT (ID, V) VALUES (S.ID, S.V);  -- ③ (NULL, y), (2, z) 추가\n-- 결과: (1, x), (NULL, b), (NULL, y), (2, z)" },
+    { t: "[원본] SRC 행별 ON 조건 평가", tb: { c: ["SRC 행", "T.ID = S.ID가 참인 TGT 행", "판정", "동작"], r: [["(1, x)", "(1, a)", "MATCHED", "UPDATE → (1, x)"], ["(NULL, y)", "없음 (NULL = NULL은 모름)", "NOT MATCHED", "INSERT (NULL, y)"], ["(2, z)", "없음", "NOT MATCHED", "INSERT (2, z)"]], hl: [1] } },
+    { t: "[1단계] 최종 TGT", tb: { c: ["ID", "V"], r: [[1, "x"], [2, "z"], [null, "b"], [null, "y"]] } },
+    { t: "의도대로 쓰려면: NULL 키끼리도 짝으로 보기", n: "MERGE INTO TGT T\nUSING SRC S\n   ON (NVL(T.ID, -1) = NVL(S.ID, -1))  -- NULL을 실제로 없는 값(-1)으로 바꿔 비교\n WHEN MATCHED THEN\n      UPDATE SET T.V = S.V\n WHEN NOT MATCHED THEN\n      INSERT (ID, V) VALUES (S.ID, S.V);\n-- 결과: (1, x), (2, z), (NULL, y)  ← (NULL, b)가 y로 UPDATE돼요" }
   ],
   res: { c: ["ID", "V"], r: [[1, "x"], [2, "z"], [null, "b"], [null, "y"]] },
   pg: "MERGE INTO TGT T USING SRC S ON (T.ID = S.ID) WHEN MATCHED THEN UPDATE SET V = S.V WHEN NOT MATCHED THEN INSERT (ID, V) VALUES (S.ID, S.V); SELECT ID, V FROM TGT ORDER BY ID NULLS LAST, V",
-  ox: ["정답.", "NULL끼리 같다고 보아 (NULL, b)가 (NULL, y)로 UPDATE된다고 본 경우다.", "NULL 키를 가진 SRC 행은 MERGE에서 무시된다고 본 경우다. 매칭이 안 될 뿐 NOT MATCHED로 INSERT된다.", "NULL 비교는 오류가 아니라 UNKNOWN(거짓 취급)일 뿐이다."],
-  trap: "ON 조건의 키에 NULL이 들어 있으면 MERGE를 반복 실행할 때마다 NULL 키 행이 계속 INSERT된다. NULL끼리 맞추려면 NVL 등으로 치환하거나 키에 NOT NULL 제약을 둔다.",
+  ox: ["정답이에요. NULL끼리는 짝이 안 돼서 (NULL, y)는 새로 들어가고, (NULL, b)는 그대로 남아요.", "이렇게 생각하면 틀려요: 'NULL끼리는 같으니 (NULL, b)가 y로 바뀐다'. NULL끼리 비교하면 '모름'이라 짝이 안 생겨요.", "이렇게 생각하면 틀려요: '키가 NULL인 SRC 행은 MERGE가 무시한다'. 짝이 없을 뿐이라 NOT MATCHED로 INSERT돼요.", "이렇게 생각하면 틀려요: 'NULL을 비교하면 오류가 난다'. 오류가 아니라 결과가 '모름'이 될 뿐이고, 짝이 없는 것으로 처리돼요."],
+  trap: "ON 조건의 키에 NULL이 있으면 MERGE를 다시 실행할 때마다 NULL 키 행이 계속 추가돼요. NULL끼리 맞추려면 NVL 같은 함수로 바꾸거나, 키에 NOT NULL 제약을 걸어요.",
   memo: "MERGE ON에서 NULL = NULL은 NOT MATCHED → INSERT"
 },
 {
@@ -625,15 +701,17 @@
   sql: "UPDATE EMP E\n   SET DNAME = (SELECT D.DNAME\n                  FROM DEPT D\n                 WHERE D.DEPTNO = E.DEPTNO);",
   o: ["SALES, DEV, NULL", "SALES, DEV, OLD", "오류가 발생하여 아무 행도 바뀌지 않는다", "SALES, DEV (ID 3 행은 삭제된다)"],
   a: 0,
-  why: "WHERE 절이 없는 UPDATE는 EMP의 모든 행을 갱신한다. 각 행마다 SET 절의 스칼라 서브쿼리가 실행되는데, ID 3(DEPTNO 30)은 DEPT에 짝이 없어 서브쿼리가 0행을 돌려준다. 스칼라 서브쿼리의 결과가 0행이면 오류가 아니라 NULL이므로, ID 3의 DNAME은 'OLD'를 잃고 NULL로 덮어써진다.",
+  sum: "WHERE가 없어서 모든 행이 바뀌어요. ID 3은 DEPT에 짝이 없어 서브쿼리 결과가 비어 있는데, 이건 오류가 아니라 NULL이라서 'OLD'가 NULL로 덮여요.",
+  why: "WHERE가 없는 UPDATE는 테이블의 모든 행을 바꿔요. 행마다 SET 안의 서브쿼리를 한 번씩 실행해서 새 값을 정해요.\n\n이 서브쿼리는 값 하나를 돌려주는 '스칼라 서브쿼리'예요. **결과 행이 하나도 없으면 오류가 아니라 NULL을 돌려줘요.** 그래서 짝이 없는 행은 '그대로 둠'이 아니라 'NULL로 바꿈'이 돼요. (결과가 2행 이상이면 그때 오류 ORA-01427이 나요.)\n\n행별로 볼게요. ID 1(DEPTNO 10)은 DEPT에서 SALES를 찾아 SALES로 바뀌어요. ID 2(20)는 DEV로 바뀌어요.\n\nID 3(30)은 DEPT에 30번이 없어서 서브쿼리 결과가 0행이에요. 그래서 NULL이 들어가고, 원래 있던 'OLD'는 사라져요.\n\n결론은 SALES, DEV, NULL이에요.",
   st: [
+    { t: "SQL 한 줄씩 읽기", n: "UPDATE EMP E                        -- ① 대상: EMP 3행 전부 (WHERE가 없어요)\n   SET DNAME = (SELECT D.DNAME       -- ② 행마다 실행해서 새 값을 정해요\n                  FROM DEPT D\n                 WHERE D.DEPTNO = E.DEPTNO);\n-- ID 1: SALES / ID 2: DEV / ID 3: 결과 0행 → NULL로 덮어써요" },
     { t: "[원본] 행별 서브쿼리 결과", tb: { c: ["ID", "DEPTNO", "서브쿼리 결과", "새 DNAME"], r: [[1, 10, "SALES", "SALES"], [2, 20, "DEV", "DEV"], [3, 30, "0행 → NULL", null]], hl: [2] } },
-    { t: "[1단계] 짝 있는 행만 바꾸려면", n: "UPDATE EMP E SET DNAME = (…)\n WHERE EXISTS (SELECT 1 FROM DEPT D WHERE D.DEPTNO = E.DEPTNO);\n→ ID 3은 갱신 대상에서 빠져 'OLD'가 유지된다." }
+    { t: "의도대로 쓰려면: 짝이 있는 행만 바꾸기", n: "UPDATE EMP E\n   SET DNAME = (SELECT D.DNAME FROM DEPT D WHERE D.DEPTNO = E.DEPTNO)\n WHERE EXISTS (SELECT 1 FROM DEPT D WHERE D.DEPTNO = E.DEPTNO);\n-- ID 3은 바꿀 대상에서 빠져요 → SALES, DEV, OLD" }
   ],
   res: { c: ["ID", "DNAME"], r: [[1, "SALES"], [2, "DEV"], [3, null]] },
   pg: "UPDATE EMP E SET DNAME = (SELECT D.DNAME FROM DEPT D WHERE D.DEPTNO = E.DEPTNO); SELECT ID, DNAME FROM EMP ORDER BY ID",
-  ox: ["정답.", "짝이 없으면 갱신하지 않고 넘어간다고 본 경우다. WHERE 절이 없으면 모든 행이 갱신 대상이다.", "서브쿼리 결과가 0행이면 오류라고 본 경우다. 오류(ORA-01427)는 2행 이상일 때다.", "UPDATE가 행을 삭제한다고 본 경우다. UPDATE는 행 수를 바꾸지 않는다."],
-  trap: "'다른 테이블 값으로 갱신' 문제는 WHERE EXISTS(또는 MERGE)를 함께 써야 의도한 행만 바뀐다. 실무에서도 기존 값이 NULL로 지워지는 대표적인 사고 유형이다.",
+  ox: ["정답이에요. 모든 행이 바뀌는데, ID 3은 서브쿼리 결과가 없어 NULL이 들어가요.", "이렇게 생각하면 틀려요: '짝이 없으면 그 행은 건드리지 않는다'. WHERE가 없으면 모든 행이 바뀌는 대상이에요.", "이렇게 생각하면 틀려요: '서브쿼리 결과가 0행이면 오류다'. 0행이면 NULL이고, 오류(ORA-01427)는 2행 이상일 때예요.", "이렇게 생각하면 틀려요: 'UPDATE가 짝 없는 행을 지운다'. UPDATE는 값만 바꾸고 행 수는 그대로예요."],
+  trap: "'다른 테이블 값으로 바꾸기' 문제는 WHERE EXISTS(또는 MERGE)를 함께 써야 원하는 행만 바뀌어요. 실무에서도 기존 값이 NULL로 지워지는 흔한 사고예요.",
   memo: "상관 UPDATE에 짝 없음 → NULL로 덮어씀"
 },
 {
@@ -647,16 +725,19 @@
   sql: "(가) DELETE FROM T WHERE ID NOT IN (SELECT ID FROM S);\n(나) DELETE FROM T\n     WHERE NOT EXISTS (SELECT 1 FROM S WHERE S.ID = T.ID);\n(다) DELETE FROM T WHERE ID IN (SELECT ID FROM S);",
   o: ["0, 3, 1", "2, 2, 1", "0, 2, 1", "2, 3, 2"],
   a: 0,
-  why: "(가) ID NOT IN (1, NULL)은 ID <> 1 AND ID <> NULL로 풀리고, ID <> NULL은 항상 UNKNOWN이므로 어떤 행도 참이 되지 않아 0건이다. (나) NOT EXISTS는 '같은 값을 가진 S 행이 없으면' 삭제한다. 2, 3은 짝이 없고, T의 NULL 행도 S.ID = NULL이 참이 될 수 없어 짝이 없으므로 3건이 삭제된다. (다) ID IN (1, NULL)은 ID = 1 OR ID = NULL이라 1만 참이 되어 1건이다.",
+  sum: "NOT IN 목록에 NULL이 있으면 모든 비교가 '모름'이 돼서 아무것도 안 지워져요. NOT EXISTS는 '짝이 없으면' 지워서 NULL 행까지 3건, IN은 1만 지워요.",
+  why: "세 문장 모두 '서브쿼리 결과(1, NULL)와 비교'하지만, 방식이 달라요.\n\n(가) ID NOT IN (1, NULL)은 'ID <> 1 그리고 ID <> NULL'이라는 뜻이에요. NULL과 비교하면 결과는 늘 '모름'이에요. **'그리고'로 묶인 조건에 '모름'이 하나라도 있으면 참이 될 수 없어서, 어떤 행도 지워지지 않아요.** 0건이에요.\n\n이렇게 되는 이유는, 목록에 모르는 값이 있으면 'ID가 그 값과 다르다'고 확신할 수 없기 때문이에요.\n\n(나) NOT EXISTS는 '같은 값을 가진 S 행이 하나도 없으면' 지워요. 2와 3은 짝이 없어요. T의 NULL 행도 S.ID = NULL이 참이 될 수 없어서 짝이 없어요. 그래서 2, 3, NULL의 3건이 지워져요.\n\n(다) ID IN (1, NULL)은 'ID = 1 또는 ID = NULL'이에요. ID 1만 참이 돼서 1건이에요. T의 NULL 행은 NULL = NULL이 '모름'이라 안 지워져요.\n\n결론은 0, 3, 1이에요.",
   st: [
-    { t: "[원본] T 행별 판정", tb: { c: ["T.ID", "NOT IN (1, NULL)", "NOT EXISTS", "IN (1, NULL)"], r: [[1, "거짓", "거짓(짝 1)", "참"], [2, "UNKNOWN", "참", "UNKNOWN"], [3, "UNKNOWN", "참", "UNKNOWN"], [null, "UNKNOWN", "참", "UNKNOWN"]] } },
-    { t: "[1단계] 삭제 건수", tb: { c: ["SQL", "삭제 행", "건수"], r: [["(가)", "없음", 0], ["(나)", "2, 3, NULL", 3], ["(다)", "1", 1]], hl: [0, 1] } }
+    { t: "SQL 한 줄씩 읽기", n: "-- 서브쿼리 SELECT ID FROM S의 결과 = (1, NULL)\nDELETE FROM T WHERE ID NOT IN (SELECT ID FROM S);\n-- (가) ID <> 1 AND ID <> NULL → 늘 '모름'이 섞여 0건\nDELETE FROM T\n WHERE NOT EXISTS (SELECT 1 FROM S WHERE S.ID = T.ID);\n-- (나) 짝이 없는 행: 2, 3, NULL → 3건\nDELETE FROM T WHERE ID IN (SELECT ID FROM S);\n-- (다) ID = 1 OR ID = NULL → 1만 참 → 1건" },
+    { t: "[원본] T 행별 판정", tb: { c: ["T.ID", "NOT IN (1, NULL)", "NOT EXISTS", "IN (1, NULL)"], r: [[1, "거짓", "거짓(짝 1)", "참"], [2, "모름", "참", "모름"], [3, "모름", "참", "모름"], [null, "모름", "참", "모름"]] } },
+    { t: "[1단계] 삭제 건수", tb: { c: ["SQL", "삭제 행", "건수"], r: [["(가)", "없음", 0], ["(나)", "2, 3, NULL", 3], ["(다)", "1", 1]], hl: [0, 1] } },
+    { t: "의도대로 쓰려면: NOT IN에서 NULL 빼기", n: "DELETE FROM T\n WHERE ID NOT IN (SELECT ID FROM S WHERE ID IS NOT NULL);\n-- 2, 3이 지워져요 (2건). T의 NULL 행은 비교가 '모름'이라 남아요" }
   ],
   pgSetup: "CREATE TABLE T1 AS SELECT * FROM T; CREATE TABLE T2 AS SELECT * FROM T; CREATE TABLE T3 AS SELECT * FROM T;",
   res: { c: ["가", "나", "다"], r: [[0, 3, 1]] },
   pg: "WITH A AS (DELETE FROM T1 WHERE ID NOT IN (SELECT ID FROM S) RETURNING 1), B AS (DELETE FROM T2 WHERE NOT EXISTS (SELECT 1 FROM S WHERE S.ID = T2.ID) RETURNING 1), C AS (DELETE FROM T3 WHERE ID IN (SELECT ID FROM S) RETURNING 1) SELECT (SELECT COUNT(*) FROM A), (SELECT COUNT(*) FROM B), (SELECT COUNT(*) FROM C)",
-  ox: ["정답.", "서브쿼리의 NULL을 무시하고 (가)를 2건으로, T의 NULL 행은 (나)에서 지워지지 않는다고 본 경우다.", "(가)는 맞혔지만 T의 NULL 행이 NOT EXISTS로 삭제된다는 점을 놓친 경우다.", "(가)에서는 서브쿼리의 NULL을 무시해 2, 3을 지우고, (다)에서는 NULL = NULL을 참으로 보아 T의 NULL 행까지 지운다고 본 경우다."],
-  trap: "NOT IN과 NOT EXISTS는 서브쿼리나 비교 컬럼에 NULL이 있으면 결과가 다르다. NOT IN의 서브쿼리에 NULL이 하나라도 있으면 결과는 항상 공집합이다.",
+  ox: ["정답이에요. NOT IN은 목록의 NULL 때문에 0건, NOT EXISTS는 짝 없는 2, 3, NULL로 3건, IN은 1만 1건이에요.", "이렇게 생각하면 틀려요: '서브쿼리의 NULL은 무시된다'(그래서 (가)가 2건) 그리고 'T의 NULL 행은 NOT EXISTS로 안 지워진다'. 둘 다 반대예요.", "이렇게 생각하면 틀려요: 'T의 NULL 행은 NOT EXISTS로도 안 지워진다'. NULL 행은 짝이 없어서 NOT EXISTS가 참이 되고 지워져요.", "이렇게 생각하면 틀려요: (가)에서는 NULL을 무시하고, (다)에서는 NULL = NULL을 참으로 봤어요. NULL과 비교하면 늘 '모름'이에요."],
+  trap: "NOT IN과 NOT EXISTS는 NULL이 있으면 결과가 달라요. NOT IN의 서브쿼리에 NULL이 하나라도 있으면 결과는 늘 0건이에요.",
   memo: "NOT IN + NULL = 0건, NOT EXISTS는 NULL 행도 삭제"
 },
 {
@@ -666,16 +747,18 @@
   sql: "CREATE TABLE M (\n  ID    NUMBER PRIMARY KEY,\n  EMAIL VARCHAR2(20) UNIQUE,\n  AGE   NUMBER CHECK (AGE >= 20)\n);\nINSERT INTO M VALUES (1, 'a@x', 25);    -- ①\nINSERT INTO M VALUES (2, NULL, NULL);   -- ②\nINSERT INTO M VALUES (3, NULL, 15);     -- ③\nINSERT INTO M VALUES (4, NULL, NULL);   -- ④\nINSERT INTO M VALUES (5, 'a@x', 30);    -- ⑤\nINSERT INTO M VALUES (NULL, 'b@x', 30); -- ⑥\nINSERT INTO M VALUES (6, 'b@x', NULL);  -- ⑦\nCOMMIT;",
   o: ["1", "3", "4", "5"],
   a: 2,
-  why: "UNIQUE는 NULL이 아닌 값끼리만 중복을 검사하므로 EMAIL이 NULL인 행은 여러 개 들어갈 수 있다(②, ④). CHECK 제약은 조건이 '거짓'일 때만 거부하고 NULL 비교로 UNKNOWN이 되면 통과시킨다(②, ④, ⑦). 실패하는 것은 AGE 15로 CHECK가 거짓인 ③, 'a@x' 중복인 ⑤, PK에 NULL을 넣은 ⑥이다. 남는 행은 ①, ②, ④, ⑦의 4행이다.",
+  sum: "UNIQUE는 NULL끼리는 중복으로 안 보고, CHECK는 NULL이면 통과시켜요. 실패하는 건 ③(15세), ⑤(이메일 중복), ⑥(PK에 NULL)뿐이라 4행이 남아요.",
+  why: "제약조건마다 NULL을 다루는 방식이 달라요. 하나씩 볼게요.\n\nUNIQUE는 'NULL이 아닌 값끼리' 중복을 검사해요. NULL은 모르는 값이라 '같다'고 할 수 없으니, EMAIL이 NULL인 행은 여러 개 들어갈 수 있어요.\n\n**CHECK는 조건이 '거짓'일 때만 막고, NULL 때문에 결과가 '모름'이면 통과시켜요.** 값이 없는 걸 막고 싶으면 NOT NULL을 따로 걸라는 설계예요. PK는 NOT NULL이 포함돼 있어서 NULL을 넣을 수 없어요.\n\n문장별로 볼게요. ①은 문제없이 성공해요. ②는 EMAIL NULL, AGE NULL이지만 둘 다 통과해서 성공해요. ③은 AGE 15라 CHECK가 거짓이 돼서 실패해요.\n\n④는 EMAIL NULL이 또 들어가지만 NULL끼리는 중복이 아니라 성공해요. ⑤는 'a@x'가 이미 있어서 실패해요. ⑥은 PK에 NULL이라 실패해요. ⑦은 AGE가 NULL이라 CHECK를 통과해서 성공해요.\n\n남는 행은 ①, ②, ④, ⑦의 4행이에요.",
   st: [
-    { t: "[원본] 문장별 판정", tb: { c: ["문장", "PK", "UNIQUE(EMAIL)", "CHECK(AGE >= 20)", "결과"], r: [["①", "통과", "통과", "25 → 참", "성공"], ["②", "통과", "NULL → 통과", "NULL → UNKNOWN 통과", "성공"], ["③", "통과", "NULL → 통과", "15 → 거짓", "실패"], ["④", "통과", "NULL 중복도 통과", "UNKNOWN 통과", "성공"], ["⑤", "통과", "'a@x' 중복", "참", "실패"], ["⑥", "NULL 불가", "통과", "참", "실패"], ["⑦", "통과", "통과", "UNKNOWN 통과", "성공"]], hl: [1, 3, 6] } }
+    { t: "SQL 한 줄씩 읽기 (문장마다 M의 상태)", n: "CREATE TABLE M (ID NUMBER PRIMARY KEY, EMAIL VARCHAR2(20) UNIQUE,\n                AGE NUMBER CHECK (AGE >= 20));  -- M = {}\nINSERT INTO M VALUES (1, 'a@x', 25);    -- 성공 → {1}\nINSERT INTO M VALUES (2, NULL, NULL);   -- 성공 → {1, 2}  (NULL은 중복 검사 X, CHECK는 '모름'이면 통과)\nINSERT INTO M VALUES (3, NULL, 15);     -- 실패: 15 >= 20 거짓 → {1, 2}\nINSERT INTO M VALUES (4, NULL, NULL);   -- 성공 → {1, 2, 4}  (EMAIL NULL 두 번째도 OK)\nINSERT INTO M VALUES (5, 'a@x', 30);    -- 실패: 'a@x' 중복 → {1, 2, 4}\nINSERT INTO M VALUES (NULL, 'b@x', 30); -- 실패: PK에 NULL → {1, 2, 4}\nINSERT INTO M VALUES (6, 'b@x', NULL);  -- 성공 → {1, 2, 4, 6}\nCOMMIT;                                 -- 4행 확정" },
+    { t: "[원본] 문장별 판정", tb: { c: ["문장", "PK", "UNIQUE(EMAIL)", "CHECK(AGE >= 20)", "결과"], r: [["①", "통과", "통과", "25 → 참", "성공"], ["②", "통과", "NULL → 통과", "NULL → 모름 통과", "성공"], ["③", "통과", "NULL → 통과", "15 → 거짓", "실패"], ["④", "통과", "NULL 중복도 통과", "모름 통과", "성공"], ["⑤", "통과", "'a@x' 중복", "참", "실패"], ["⑥", "NULL 불가", "통과", "참", "실패"], ["⑦", "통과", "통과", "모름 통과", "성공"]], hl: [1, 3, 6] } }
   ],
   pgSetup: "CREATE TABLE M (ID numeric PRIMARY KEY, EMAIL text UNIQUE, AGE numeric CHECK (AGE >= 20));",
   res: { c: ["CNT"], r: [[4]] },
   pg: "DO $$ BEGIN INSERT INTO M VALUES (1, 'a@x', 25); EXCEPTION WHEN OTHERS THEN NULL; END $$; DO $$ BEGIN INSERT INTO M VALUES (2, NULL, NULL); EXCEPTION WHEN OTHERS THEN NULL; END $$; DO $$ BEGIN INSERT INTO M VALUES (3, NULL, 15); EXCEPTION WHEN OTHERS THEN NULL; END $$; DO $$ BEGIN INSERT INTO M VALUES (4, NULL, NULL); EXCEPTION WHEN OTHERS THEN NULL; END $$; DO $$ BEGIN INSERT INTO M VALUES (5, 'a@x', 30); EXCEPTION WHEN OTHERS THEN NULL; END $$; DO $$ BEGIN INSERT INTO M VALUES (NULL, 'b@x', 30); EXCEPTION WHEN OTHERS THEN NULL; END $$; DO $$ BEGIN INSERT INTO M VALUES (6, 'b@x', NULL); EXCEPTION WHEN OTHERS THEN NULL; END $$; SELECT COUNT(*) FROM M",
-  ox: ["CHECK가 NULL도 거부한다고 보아 ②, ④, ⑦까지 실패로 센 경우다.", "UNIQUE 컬럼에 NULL은 하나만 들어갈 수 있다고 보아 ④를 실패로 센 경우다.", "정답.", "PK 컬럼에도 NULL이 들어갈 수 있다고 보아 ⑥을 성공으로 센 경우다."],
-  trap: "Oracle에서 문장 하나가 제약조건 위반으로 실패하면 '그 문장만' 롤백되고(문장 수준 롤백), 같은 트랜잭션의 앞선 성공 문장은 그대로 남는다. NULL을 막으려면 NOT NULL 제약을 따로 걸어야 한다.",
-  memo: "UNIQUE NULL 여러 개 OK, CHECK는 UNKNOWN 통과, PK는 NULL 불가"
+  ox: ["이렇게 생각하면 틀려요: 'CHECK는 NULL도 막는다'. 그래서 ②, ④, ⑦까지 실패로 셌어요. CHECK는 결과가 '모름'이면 통과시켜요.", "이렇게 생각하면 틀려요: 'UNIQUE 컬럼에는 NULL이 하나만 들어간다'. 그래서 ④를 실패로 셌어요. NULL끼리는 중복으로 보지 않아요.", "정답이에요. 실패는 ③(CHECK 거짓), ⑤(중복), ⑥(PK에 NULL)뿐이라 ①, ②, ④, ⑦의 4행이 남아요.", "이렇게 생각하면 틀려요: 'PK에도 NULL이 들어간다'. 그래서 ⑥을 성공으로 셌어요. PK는 NULL을 허용하지 않아요."],
+  trap: "Oracle에서 문장 하나가 제약조건 때문에 실패하면 '그 문장만' 취소되고(문장 단위 롤백), 앞서 성공한 문장은 그대로 남아요. NULL을 막으려면 NOT NULL 제약을 따로 걸어야 해요.",
+  memo: "UNIQUE NULL 여러 개 OK, CHECK는 NULL이면 통과, PK는 NULL 불가"
 },
 {
   id: "S195", s: 2, tp: "tcl", lv: 3, kill: true, sub: "TCL",
@@ -684,15 +767,17 @@
   sql: "INSERT INTO T VALUES (1);\nSAVEPOINT A;\nINSERT INTO T VALUES (2);\nSAVEPOINT B;\nINSERT INTO T VALUES (3);\nROLLBACK TO A;\nINSERT INTO T VALUES (4);\nROLLBACK TO B;\nCOMMIT;",
   o: ["1, 4", "1, 2", "1, 2, 4", "아무 행도 남지 않는다"],
   a: 0,
-  why: "ROLLBACK TO A는 A 이후의 모든 변경(INSERT 2, 3)을 취소하면서 A 이후에 만든 SAVEPOINT B도 함께 지운다. 그 뒤의 ROLLBACK TO B는 존재하지 않는 저장점을 가리키므로 ORA-01086(savepoint 'B' never established) 오류가 나고 아무것도 되돌리지 않는다. 문장 하나의 오류는 트랜잭션 전체를 취소하지 않으므로, COMMIT 시점의 데이터 1, 4가 확정된다.",
+  sum: "ROLLBACK TO A를 하면 A 뒤에 만든 저장점 B도 같이 사라져요. 그래서 ROLLBACK TO B는 오류로 아무것도 안 하고, 1, 4가 확정돼요.",
+  why: "SAVEPOINT는 트랜잭션 중간에 꽂아 두는 '책갈피'예요. ROLLBACK TO 책갈피를 하면 그 지점 뒤의 변경이 취소돼요.\n\n**ROLLBACK TO A는 A 뒤의 변경만이 아니라, A 뒤에 만든 책갈피(B)까지 함께 지워요.** B가 가리키던 시점 자체가 취소됐으니, 그 책갈피도 의미가 없어지기 때문이에요.\n\n차례로 볼게요. INSERT 1 후 A를 꽂아요. INSERT 2 후 B를 꽂고, INSERT 3을 해요. 이때 T는 {1, 2, 3}이에요.\n\nROLLBACK TO A로 2, 3이 취소되고 B도 사라져요. T는 {1}이에요. 그다음 INSERT 4로 {1, 4}가 돼요.\n\nROLLBACK TO B는 없는 책갈피라 ORA-01086 오류가 나요. 오류가 난 그 문장만 실패하고, 트랜잭션 전체가 취소되지는 않아요.\n\n마지막 COMMIT으로 {1, 4}가 확정돼요.",
   st: [
+    { t: "SQL 한 줄씩 읽기 (문장마다 T의 상태)", n: "INSERT INTO T VALUES (1);   -- T = {1}\nSAVEPOINT A;                -- 책갈피: A\nINSERT INTO T VALUES (2);   -- T = {1, 2}\nSAVEPOINT B;                -- 책갈피: A, B\nINSERT INTO T VALUES (3);   -- T = {1, 2, 3}\nROLLBACK TO A;              -- T = {1}, 책갈피: A (B는 사라짐)\nINSERT INTO T VALUES (4);   -- T = {1, 4}\nROLLBACK TO B;              -- 오류 ORA-01086: B가 없어요 → T = {1, 4} 그대로\nCOMMIT;                     -- {1, 4} 확정" },
     { t: "[원본] 단계별 상태", tb: { c: ["명령", "T 상태", "살아 있는 SAVEPOINT"], r: [["INSERT 1", "{1}", "—"], ["SAVEPOINT A", "{1}", "A"], ["INSERT 2", "{1, 2}", "A"], ["SAVEPOINT B", "{1, 2}", "A, B"], ["INSERT 3", "{1, 2, 3}", "A, B"], ["ROLLBACK TO A", "{1}", "A (B 소멸)"], ["INSERT 4", "{1, 4}", "A"], ["ROLLBACK TO B", "{1, 4}", "오류 — B 없음"], ["COMMIT", "{1, 4} 확정", "모두 해제"]], hl: [5, 7] } }
   ],
   pgSetup: "CREATE TABLE T (ID numeric);",
   res: { c: ["ID"], r: [[1], [4]] },
   pg: "BEGIN; INSERT INTO T VALUES (1); SAVEPOINT A; INSERT INTO T VALUES (2); SAVEPOINT B; INSERT INTO T VALUES (3); ROLLBACK TO A; INSERT INTO T VALUES (4); COMMIT; SELECT ID FROM T ORDER BY ID",
-  ox: ["정답.", "ROLLBACK TO B가 B 시점의 상태 {1, 2}로 되살린다고 본 경우다. ROLLBACK은 이미 취소된 변경을 되살리지 못하고, B는 이미 사라졌다.", "ROLLBACK TO A가 A와 B 사이의 INSERT 2는 남긴다고 본 경우다.", "ROLLBACK TO B의 오류로 트랜잭션 전체가 취소된다고 본 경우다."],
-  trap: "PostgreSQL에서는 오류가 난 트랜잭션이 중단(aborted) 상태가 되어 COMMIT해도 롤백된다. Oracle은 오류 문장만 실패하므로, 검증 SQL에서는 효과가 없는 ROLLBACK TO B를 빼고 같은 결과를 재현했다.",
+  ox: ["정답이에요. ROLLBACK TO A로 B가 사라져서 ROLLBACK TO B는 오류만 나고, {1, 4}가 확정돼요.", "이렇게 생각하면 틀려요: 'ROLLBACK TO B로 B 시점 {1, 2}가 되살아난다'. 한 번 취소된 변경은 되살릴 수 없고, B는 이미 사라졌어요.", "이렇게 생각하면 틀려요: 'ROLLBACK TO A가 A와 B 사이의 INSERT 2는 남긴다'. A 뒤의 변경은 모두 취소돼요.", "이렇게 생각하면 틀려요: 'ROLLBACK TO B의 오류로 트랜잭션 전체가 취소된다'. Oracle에서는 오류 난 문장만 실패해요."],
+  trap: "PostgreSQL에서는 오류가 나면 트랜잭션 전체가 멈춘 상태가 되어 COMMIT해도 롤백돼요. Oracle은 오류 난 문장만 실패하니, 검증 SQL에서는 효과가 없는 ROLLBACK TO B를 빼고 같은 결과를 재현했어요.",
   memo: "ROLLBACK TO A → A 이후 SAVEPOINT도 소멸"
 },
 {
@@ -702,15 +787,17 @@
   sql: "INSERT INTO T VALUES (1);\nSAVEPOINT P;\nINSERT INTO T VALUES (2);\nSAVEPOINT Q;\nINSERT INTO T VALUES (3);\nSAVEPOINT P;\nINSERT INTO T VALUES (4);\nROLLBACK TO Q;\nINSERT INTO T VALUES (5);\nROLLBACK TO P;\nCOMMIT;",
   o: ["1, 2, 5", "1", "1, 2", "아무 행도 남지 않는다"],
   a: 0,
-  why: "Oracle에서 같은 이름으로 SAVEPOINT를 다시 만들면 예전 저장점은 지워지고 새 위치로 옮겨진다. 그래서 첫 번째 P(INSERT 1 뒤)는 사라지고 P는 INSERT 3 뒤를 가리킨다. ROLLBACK TO Q는 Q 이후의 INSERT 3, 4를 취소하면서 Q 이후에 만든 저장점(새 P)도 지운다. 이제 P라는 저장점은 어디에도 없으므로 ROLLBACK TO P는 ORA-01086 오류로 실패하고 아무것도 취소하지 않는다. COMMIT 시점의 1, 2, 5가 확정된다.",
+  sum: "같은 이름으로 SAVEPOINT를 다시 만들면 옛 P는 지워지고 새 위치로 옮겨져요. 그 새 P는 ROLLBACK TO Q 때 사라져서, ROLLBACK TO P는 오류만 나고 1, 2, 5가 남아요.",
+  why: "규칙이 두 개 있어요. 첫째, Oracle에서 같은 이름으로 SAVEPOINT를 다시 만들면 옛 책갈피는 지워지고 새 위치로 옮겨져요. 둘째, ROLLBACK TO X를 하면 X 뒤에 만든 책갈피가 모두 사라져요.\n\n**이 두 규칙이 겹치면서 P라는 책갈피가 아예 없어지는 게 이 문제의 핵심이에요.**\n\n차례로 볼게요. INSERT 1 후 P를 꽂아요(1 뒤). INSERT 2 후 Q를 꽂아요. INSERT 3 후 P를 다시 꽂아요. 이때 옛 P(1 뒤)는 사라지고, P는 3 뒤를 가리켜요.\n\nINSERT 4로 T는 {1, 2, 3, 4}예요. ROLLBACK TO Q로 3, 4가 취소되고, Q 뒤에 만든 새 P도 사라져요. T는 {1, 2}예요.\n\nINSERT 5로 {1, 2, 5}가 돼요. ROLLBACK TO P는 P가 어디에도 없어서 ORA-01086 오류만 나고 아무것도 취소하지 않아요.\n\nCOMMIT으로 {1, 2, 5}가 확정돼요.",
   st: [
+    { t: "SQL 한 줄씩 읽기 (문장마다 T의 상태)", n: "INSERT INTO T VALUES (1);   -- T = {1}\nSAVEPOINT P;                -- 책갈피: P(1 뒤)\nINSERT INTO T VALUES (2);   -- T = {1, 2}\nSAVEPOINT Q;                -- 책갈피: P(1 뒤), Q(2 뒤)\nINSERT INTO T VALUES (3);   -- T = {1, 2, 3}\nSAVEPOINT P;                -- 같은 이름: 옛 P 삭제 → 책갈피: Q, P(3 뒤)\nINSERT INTO T VALUES (4);   -- T = {1, 2, 3, 4}\nROLLBACK TO Q;              -- T = {1, 2}, Q 뒤의 P도 사라짐 → 책갈피: Q\nINSERT INTO T VALUES (5);   -- T = {1, 2, 5}\nROLLBACK TO P;              -- 오류 ORA-01086: P가 없어요 → 그대로\nCOMMIT;                     -- {1, 2, 5} 확정" },
     { t: "[원본] 단계별 상태", tb: { c: ["명령", "T 상태", "살아 있는 SAVEPOINT"], r: [["INSERT 1", "{1}", "—"], ["SAVEPOINT P", "{1}", "P(1 뒤)"], ["INSERT 2", "{1, 2}", "P(1 뒤)"], ["SAVEPOINT Q", "{1, 2}", "P(1 뒤), Q"], ["INSERT 3", "{1, 2, 3}", "P(1 뒤), Q"], ["SAVEPOINT P (재정의)", "{1, 2, 3}", "Q, P(3 뒤) — 옛 P 소멸"], ["INSERT 4", "{1, 2, 3, 4}", "Q, P(3 뒤)"], ["ROLLBACK TO Q", "{1, 2}", "Q — 새 P 소멸"], ["INSERT 5", "{1, 2, 5}", "Q"], ["ROLLBACK TO P", "{1, 2, 5}", "오류 — P 없음"], ["COMMIT", "{1, 2, 5} 확정", "—"]], hl: [5, 7, 9] } }
   ],
   pgSetup: "CREATE TABLE T (ID numeric);",
   res: { c: ["ID"], r: [[1], [2], [5]] },
   pg: "BEGIN; INSERT INTO T VALUES (1); SAVEPOINT P; INSERT INTO T VALUES (2); SAVEPOINT Q; INSERT INTO T VALUES (3); SAVEPOINT P; INSERT INTO T VALUES (4); ROLLBACK TO Q; INSERT INTO T VALUES (5); COMMIT; SELECT ID FROM T ORDER BY ID",
-  ox: ["정답.", "재정의 후에도 첫 번째 P(INSERT 1 뒤)가 남아 있어 ROLLBACK TO P가 그곳으로 돌아간다고 본 경우다.", "실패한 ROLLBACK TO P가 바로 앞의 INSERT 5를 취소한다고 본 경우다.", "ROLLBACK TO P의 오류로 트랜잭션 전체가 취소된다고 본 경우다."],
-  trap: "PostgreSQL은 같은 이름의 예전 저장점을 지우지 않고 가려 둘 뿐이라, 같은 SQL을 실행하면 ROLLBACK TO P가 첫 번째 P로 돌아가 {1}이 된다. 그래서 검증 SQL에서는 Oracle에서 효과가 없는 ROLLBACK TO P를 빼고 재현했다. 시험은 Oracle 기준이다.",
+  ox: ["정답이에요. 옛 P는 재정의로, 새 P는 ROLLBACK TO Q로 사라져서 ROLLBACK TO P는 오류만 나고 {1, 2, 5}가 확정돼요.", "이렇게 생각하면 틀려요: '다시 만들어도 첫 번째 P가 남아 있어서 거기로 돌아간다'. Oracle은 같은 이름이면 옛 책갈피를 지워요.", "이렇게 생각하면 틀려요: '실패한 ROLLBACK TO P가 바로 앞의 INSERT 5는 취소한다'. 오류 난 문장은 아무것도 하지 않아요.", "이렇게 생각하면 틀려요: 'ROLLBACK TO P 오류로 트랜잭션 전체가 취소된다'. Oracle에서는 오류 난 문장만 실패해요."],
+  trap: "PostgreSQL은 같은 이름의 옛 책갈피를 지우지 않고 가려 둘 뿐이라, 같은 SQL을 실행하면 ROLLBACK TO P가 첫 번째 P로 돌아가 {1}이 돼요. 그래서 검증 SQL에서는 Oracle에서 효과가 없는 ROLLBACK TO P를 빼고 재현했어요. 시험은 Oracle 기준이에요.",
   memo: "같은 이름 SAVEPOINT = 옛것 삭제 / ROLLBACK TO X = X 이후 저장점 삭제"
 },
 {
@@ -720,12 +807,14 @@
   sql: "INSERT INTO T VALUES (1);\nSAVEPOINT S1;\nINSERT INTO T VALUES (2);\nCREATE TABLE X (C NUMBER);\nINSERT INTO T VALUES (3);\nROLLBACK TO S1;\nINSERT INTO T VALUES (4);\nCOMMIT;",
   o: ["1, 2, 3, 4", "1, 4", "1, 2, 4", "1, 2"],
   a: 0,
-  why: "Oracle에서 DDL(CREATE TABLE)은 실행 전후에 자동으로 COMMIT한다. CREATE TABLE X 시점에 INSERT 1, 2가 확정되고 트랜잭션이 끝나면서 그 트랜잭션의 SAVEPOINT S1도 함께 사라진다. 이후 ROLLBACK TO S1은 ORA-01086 오류로 실패하고 아무것도 취소하지 않는다. 따라서 INSERT 3, 4가 그대로 남아 COMMIT으로 확정되어 1, 2, 3, 4가 된다.",
+  sum: "Oracle에서 CREATE TABLE 같은 DDL은 실행할 때 자동으로 COMMIT해요. 그 순간 저장점 S1도 사라져서 ROLLBACK TO S1은 오류만 나고, 1, 2, 3, 4가 모두 남아요.",
+  why: "Oracle에서 DDL(CREATE, ALTER, DROP처럼 테이블 구조를 바꾸는 명령)은 실행 전후에 자동으로 COMMIT해요.\n\n**COMMIT은 트랜잭션을 끝내는데, 트랜잭션이 끝나면 그 안의 책갈피(SAVEPOINT)도 전부 사라져요.** 책갈피는 '아직 확정 안 된 작업' 안에서만 의미가 있기 때문이에요.\n\n차례로 볼게요. INSERT 1, S1 책갈피, INSERT 2까지는 아직 확정 전이에요.\n\nCREATE TABLE X가 실행되면서 자동 COMMIT이 일어나요. 1, 2가 확정되고 S1은 사라져요.\n\nINSERT 3을 한 뒤 ROLLBACK TO S1을 하면, S1이 없어서 ORA-01086 오류가 나요. 아무것도 취소되지 않고 3은 그대로예요.\n\nINSERT 4 후 COMMIT으로 3, 4도 확정돼요. 결론은 1, 2, 3, 4예요.",
   st: [
+    { t: "SQL 한 줄씩 읽기 (문장마다 T의 상태)", n: "INSERT INTO T VALUES (1);   -- T = {1} (확정 전)\nSAVEPOINT S1;               -- 책갈피: S1\nINSERT INTO T VALUES (2);   -- T = {1, 2} (확정 전)\nCREATE TABLE X (C NUMBER);  -- DDL → 자동 COMMIT: {1, 2} 확정, S1 사라짐\nINSERT INTO T VALUES (3);   -- T = {1, 2, 3} (3은 확정 전)\nROLLBACK TO S1;             -- 오류 ORA-01086: S1이 없어요 → 그대로\nINSERT INTO T VALUES (4);   -- T = {1, 2, 3, 4}\nCOMMIT;                     -- {1, 2, 3, 4} 확정" },
     { t: "[원본] 단계별 상태", tb: { c: ["명령", "확정", "미확정", "SAVEPOINT"], r: [["INSERT 1", "—", "1", "—"], ["SAVEPOINT S1", "—", "1", "S1"], ["INSERT 2", "—", "1, 2", "S1"], ["CREATE TABLE X (자동 COMMIT)", "1, 2", "—", "소멸"], ["INSERT 3", "1, 2", "3", "—"], ["ROLLBACK TO S1", "1, 2", "3", "오류 — S1 없음"], ["INSERT 4", "1, 2", "3, 4", "—"], ["COMMIT", "1, 2, 3, 4", "—", "—"]], hl: [3, 5] } }
   ],
-  ox: ["정답.", "DDL의 자동 커밋을 몰라 ROLLBACK TO S1이 정상 동작한다고 본 경우다.", "S1은 살아 있되 이미 확정된 2는 되돌릴 수 없다고 섞어 생각해 INSERT 3만 취소한 경우다. 커밋과 함께 S1 자체가 사라진다.", "ROLLBACK TO S1의 오류로 그 뒤의 INSERT 3, 4까지 취소된다고 본 경우다."],
-  trap: "PostgreSQL은 DDL도 트랜잭션 안에서 롤백할 수 있어 같은 순서를 실행하면 결과가 {1, 4}가 된다. Oracle의 DDL 자동 커밋은 PostgreSQL로 재현할 수 없어 DB 검증을 생략한다.",
+  ox: ["정답이에요. CREATE TABLE의 자동 COMMIT으로 S1이 사라져서 ROLLBACK TO S1은 오류만 나고, 1, 2, 3, 4가 모두 확정돼요.", "이렇게 생각하면 틀려요: 'DDL이 있어도 ROLLBACK TO S1이 정상 동작한다'. DDL의 자동 COMMIT으로 S1은 이미 없어요.", "이렇게 생각하면 틀려요: 'S1은 살아 있고, 확정된 2만 못 되돌린다'. 그래서 3만 취소했어요. COMMIT과 함께 S1 자체가 사라져요.", "이렇게 생각하면 틀려요: 'ROLLBACK TO S1 오류로 그 뒤의 3, 4까지 취소된다'. 오류 난 문장은 아무것도 하지 않고, 4는 그 뒤에 정상으로 들어가요."],
+  trap: "PostgreSQL은 DDL도 트랜잭션 안에서 롤백할 수 있어서, 같은 순서를 실행하면 {1, 4}가 돼요. Oracle의 DDL 자동 COMMIT은 PostgreSQL로 재현할 수 없어 DB 검증은 생략했어요.",
   memo: "DDL = COMMIT = SAVEPOINT 전부 소멸"
 },
 {
@@ -736,16 +825,18 @@
   sql: "UPDATE T SET V = V + 1 WHERE ID = 1;\nSAVEPOINT SA;\nDELETE FROM T WHERE ID = 2;\nCOMMIT;\nINSERT INTO T VALUES (3, 300);\nROLLBACK;",
   o: ["(1, 101)", "(1, 100), (2, 200)", "(1, 101), (3, 300)", "(1, 101), (2, 200)"],
   a: 0,
-  why: "COMMIT은 그때까지의 변경(UPDATE, DELETE)을 영구히 확정하고 트랜잭션을 끝내며, 그 트랜잭션의 SAVEPOINT SA도 해제한다. 저장점 없는 ROLLBACK은 '마지막 COMMIT 이후'의 변경, 즉 INSERT 3만 취소한다. 이미 확정된 UPDATE와 DELETE는 되돌릴 수 없으므로 (1, 101)만 남는다.",
+  sum: "COMMIT한 변경은 되돌릴 수 없어요. 마지막 ROLLBACK은 COMMIT 뒤의 INSERT 3만 취소해서 (1, 101)만 남아요.",
+  why: "COMMIT은 그때까지의 변경을 영구히 확정하고 트랜잭션을 끝내요. 그 트랜잭션의 책갈피(SAVEPOINT)도 같이 사라져요.\n\n**책갈피 없이 쓴 ROLLBACK은 '마지막 COMMIT 뒤의 변경'만 취소해요.** 이미 확정된 것은 되돌릴 방법이 없어요. 확정을 되돌릴 수 있다면 COMMIT이라는 약속이 의미가 없어지니까요.\n\n차례로 볼게요. UPDATE로 ID 1이 101이 돼요. SA 책갈피를 꽂고, DELETE로 ID 2를 지워요. T는 (1, 101)이에요.\n\nCOMMIT으로 (1, 101)이 확정되고 SA는 사라져요.\n\n새 트랜잭션에서 INSERT (3, 300)을 하면 T는 (1, 101), (3, 300)이에요. ROLLBACK은 이 INSERT만 취소해요.\n\n결론은 (1, 101)이에요.",
   st: [
+    { t: "SQL 한 줄씩 읽기 (문장마다 T의 상태)", n: "UPDATE T SET V = V + 1 WHERE ID = 1;  -- T = (1, 101), (2, 200)\nSAVEPOINT SA;                         -- 책갈피: SA\nDELETE FROM T WHERE ID = 2;           -- T = (1, 101)\nCOMMIT;                               -- (1, 101) 확정, SA 사라짐\nINSERT INTO T VALUES (3, 300);        -- T = (1, 101), (3, 300) (3은 확정 전)\nROLLBACK;                             -- 마지막 COMMIT 뒤만 취소 → T = (1, 101)" },
     { t: "[원본] 확정 상태", tb: { c: ["ID", "V"], r: [[1, 100], [2, 200]] } },
     { t: "[1단계] COMMIT까지", tb: { c: ["명령", "T 상태"], r: [["UPDATE ID 1", "(1, 101), (2, 200)"], ["SAVEPOINT SA", "변화 없음"], ["DELETE ID 2", "(1, 101)"], ["COMMIT", "(1, 101) 확정, SA 해제"]], hl: [3] } },
     { t: "[2단계] COMMIT 이후", tb: { c: ["명령", "T 상태"], r: [["INSERT (3, 300)", "(1, 101), (3, 300)"], ["ROLLBACK", "(1, 101)"]] } }
   ],
   res: { c: ["ID", "V"], r: [[1, 101]] },
   pg: "BEGIN; UPDATE T SET V = V + 1 WHERE ID = 1; SAVEPOINT SA; DELETE FROM T WHERE ID = 2; COMMIT; BEGIN; INSERT INTO T VALUES (3, 300); ROLLBACK; SELECT ID, V FROM T ORDER BY ID",
-  ox: ["정답.", "ROLLBACK이 COMMIT 이전의 변경까지 모두 취소한다고 본 경우다.", "ROLLBACK이 아무것도 취소하지 않는다고 본 경우다.", "저장점 없는 ROLLBACK이 마지막 SAVEPOINT(SA)로 돌아간다고 본 경우다. SA는 COMMIT과 함께 사라졌고, ROLLBACK은 저장점과 무관하게 트랜잭션 시작점으로 돌아간다."],
-  trap: "ROLLBACK(저장점 없음) = 현재 트랜잭션 전체 취소 = 마지막 COMMIT 시점으로 복귀다. ROLLBACK TO SA처럼 저장점을 명시해야만 중간 지점으로 돌아간다.",
+  ox: ["정답이에요. UPDATE와 DELETE는 COMMIT으로 확정됐고, ROLLBACK은 그 뒤의 INSERT 3만 취소해요.", "이렇게 생각하면 틀려요: 'ROLLBACK은 COMMIT 전의 변경까지 모두 취소한다'. 확정된 변경은 되돌릴 수 없어요.", "이렇게 생각하면 틀려요: 'ROLLBACK이 아무것도 취소하지 않는다'. COMMIT 뒤의 INSERT 3은 확정 전이라 취소돼요.", "이렇게 생각하면 틀려요: '책갈피 없는 ROLLBACK은 마지막 SAVEPOINT(SA)로 돌아간다'. SA는 COMMIT과 함께 사라졌고, ROLLBACK은 트랜잭션 시작점으로 돌아가요."],
+  trap: "ROLLBACK(책갈피 없음) = 현재 트랜잭션 전체 취소 = 마지막 COMMIT 시점으로 돌아가기예요. ROLLBACK TO SA처럼 책갈피를 적어야만 중간 지점으로 돌아가요.",
   memo: "ROLLBACK = 마지막 COMMIT까지만"
 },
 {
@@ -756,15 +847,17 @@
   sql: "DELETE FROM T1 WHERE ID <= 2;\nCREATE TABLE T2 AS SELECT * FROM T1;\nDELETE FROM T2;\nROLLBACK;\nTRUNCATE TABLE T1;\nROLLBACK;",
   o: ["T1 0, T2 3", "T1 3, T2 3", "T1 0, T2 0", "T1 5, T2 3"],
   a: 0,
-  why: "Oracle에서 DDL은 실행 전후에 자동으로 COMMIT한다. CREATE TABLE … AS SELECT(CTAS)도 DDL이므로 앞선 DELETE(ID 1, 2 삭제)가 확정되고, T2는 그 시점의 T1 데이터 3행을 복사해 만들어진다. 이어지는 DELETE FROM T2는 DML이라 ROLLBACK으로 되돌아가 T2는 3행이다. TRUNCATE는 DDL이라 즉시 확정되므로 뒤의 ROLLBACK으로 되돌릴 수 없어 T1은 0행이다.",
+  sum: "CTAS(CREATE TABLE … AS SELECT)는 DDL이라 앞의 DELETE까지 자동으로 확정하고, 그때의 3행을 복사해요. TRUNCATE도 DDL이라 ROLLBACK으로 못 되돌려서 T1 0, T2 3이에요.",
+  why: "Oracle에서 DDL(테이블 구조를 만들고 바꾸는 명령)은 실행 전후에 자동으로 COMMIT해요. CREATE TABLE … AS SELECT(CTAS)와 TRUNCATE도 DDL이에요.\n\n**그래서 DDL이 실행되는 순간 그 앞의 DML까지 모두 확정되고, DDL 자체도 ROLLBACK으로 되돌릴 수 없어요.** 반대로 DELETE 같은 DML은 COMMIT 전이라면 ROLLBACK으로 되돌릴 수 있어요.\n\n차례로 볼게요. DELETE로 T1의 ID 1, 2가 지워져 3행이 돼요(확정 전).\n\nCTAS가 실행되면서 자동 COMMIT으로 그 DELETE가 확정돼요. T2는 그 시점 T1의 3행을 복사해서 만들어져요.\n\nDELETE FROM T2는 DML이라 뒤의 ROLLBACK으로 취소돼요. T2는 다시 3행이에요.\n\nTRUNCATE TABLE T1은 DDL이라 즉시 확정돼요. 뒤의 ROLLBACK은 취소할 것이 없어요. T1은 0행이에요.\n\n결론은 T1 0, T2 3이에요.",
   st: [
+    { t: "SQL 한 줄씩 읽기 (문장마다 T1, T2의 상태)", n: "DELETE FROM T1 WHERE ID <= 2;         -- T1 3행 (확정 전)\nCREATE TABLE T2 AS SELECT * FROM T1;  -- DDL → 자동 COMMIT: T1 3행 확정, T2 = 3행 복사\nDELETE FROM T2;                       -- T2 0행 (확정 전)\nROLLBACK;                             -- T2 삭제 취소 → T2 3행\nTRUNCATE TABLE T1;                    -- DDL → 즉시 확정: T1 0행\nROLLBACK;                             -- 취소할 것 없음 → T1 0행, T2 3행" },
     { t: "[원본] 확정된 T1", tb: { c: ["T1 행 수", "T2"], r: [[5, "없음"]] } },
     { t: "[1단계] 단계별 상태", tb: { c: ["명령", "분류", "T1", "T2", "비고"], r: [["DELETE ID <= 2", "DML", 3, "—", "미확정"], ["CREATE TABLE T2 AS …", "DDL", 3, 3, "자동 COMMIT, 데이터 복사"], ["DELETE FROM T2", "DML", 3, 0, "미확정"], ["ROLLBACK", "TCL", 3, 3, "T2 삭제 취소"], ["TRUNCATE TABLE T1", "DDL", 0, 3, "자동 COMMIT"], ["ROLLBACK", "TCL", 0, 3, "취소할 것 없음"]], hl: [1, 4] } }
   ],
   res: { c: ["T1", "T2"], r: [[0, 3]] },
   pg: "BEGIN; DELETE FROM T1 WHERE ID <= 2; COMMIT; CREATE TABLE T2 AS SELECT * FROM T1; BEGIN; DELETE FROM T2; ROLLBACK; TRUNCATE TABLE T1; SELECT (SELECT COUNT(*) FROM T1), (SELECT COUNT(*) FROM T2)",
-  ox: ["정답.", "TRUNCATE도 DELETE처럼 ROLLBACK으로 되돌릴 수 있다고 본 경우다.", "CTAS가 구조만 복사하고 데이터는 복사하지 않는다고 본 경우다. 데이터 없이 구조만 복사하려면 WHERE 1 = 2를 붙인다.", "DDL의 자동 커밋과 TRUNCATE의 확정을 모두 몰라 처음 상태로 되돌아간다고 본 경우다."],
-  trap: "PostgreSQL은 DDL과 TRUNCATE도 트랜잭션 안에서 롤백할 수 있으므로, 검증 SQL에서는 Oracle의 자동 커밋 위치에 COMMIT을 명시하고 TRUNCATE를 트랜잭션 밖(즉시 확정)에서 실행해 재현했다. 참고로 CTAS는 NOT NULL 외의 제약조건(PK, FK, UNIQUE, CHECK)과 DEFAULT 값은 복사하지 않는다.",
+  ox: ["정답이에요. CTAS가 DELETE를 확정하고 3행을 복사했고, T2의 DELETE는 ROLLBACK됐어요. TRUNCATE는 되돌릴 수 없어 T1은 0행이에요.", "이렇게 생각하면 틀려요: 'TRUNCATE도 DELETE처럼 ROLLBACK된다'. TRUNCATE는 DDL이라 바로 확정돼요.", "이렇게 생각하면 틀려요: 'CTAS는 구조만 복사하고 데이터는 안 가져온다'. CTAS는 SELECT 결과 데이터도 복사해요. 구조만 원하면 WHERE 1 = 2를 붙여요.", "이렇게 생각하면 틀려요: 'ROLLBACK으로 처음 상태로 돌아간다'. DDL의 자동 COMMIT과 TRUNCATE의 즉시 확정 때문에 되돌릴 수 없어요."],
+  trap: "PostgreSQL은 DDL과 TRUNCATE도 트랜잭션 안에서 롤백할 수 있어요. 그래서 검증 SQL에서는 Oracle의 자동 COMMIT 자리에 COMMIT을 적고, TRUNCATE는 트랜잭션 밖에서 실행해 재현했어요. 참고로 CTAS는 NOT NULL 말고 다른 제약조건(PK, FK, UNIQUE, CHECK)과 DEFAULT 값은 복사하지 않아요.",
   memo: "CTAS = DDL(자동 COMMIT) + 데이터 복사 / TRUNCATE = ROLLBACK 불가"
 },
 {
@@ -774,12 +867,14 @@
   sql: "-- DBA 계정\nGRANT CREATE TABLE TO B WITH ADMIN OPTION;\n-- B 계정\nGRANT CREATE TABLE TO C;\n-- DBA 계정\nREVOKE CREATE TABLE FROM B;\n\n-- A 계정 (테이블 T의 소유자)\nGRANT SELECT ON T TO D WITH GRANT OPTION;\n-- D 계정\nGRANT SELECT ON A.T TO E;\n-- A 계정\nREVOKE SELECT ON T FROM D;",
   o: ["C: 유지 / E: 상실", "C: 상실 / E: 상실", "C: 유지 / E: 유지", "C: 상실 / E: 유지"],
   a: 0,
-  why: "시스템 권한(CREATE TABLE 등)을 WITH ADMIN OPTION으로 받은 사용자가 다른 사용자에게 다시 부여한 경우, 원래 사용자의 권한을 회수해도 연쇄적으로 회수되지 않는다(C는 유지). 객체 권한(SELECT ON T 등)을 WITH GRANT OPTION으로 받아 다시 부여한 경우에는 원래 사용자의 권한을 회수하면 그가 부여한 권한까지 연쇄적으로(CASCADE) 회수된다(E는 상실).",
+  sum: "시스템 권한(ADMIN OPTION)은 중간 사람에게서 뺏어도 그가 나눠 준 권한은 그대로예요. 객체 권한(GRANT OPTION)은 줄줄이 같이 회수돼요. 그래서 C는 유지, E는 상실이에요.",
+  why: "권한은 두 종류예요. 시스템 권한은 'CREATE TABLE'처럼 DB 전체에서 어떤 일을 할 수 있는 권한이고, 객체 권한은 'SELECT ON T'처럼 특정 테이블에 대한 권한이에요.\n\n다른 사람에게 다시 나눠 줄 수 있게 하는 옵션도 달라요. 시스템 권한은 WITH ADMIN OPTION, 객체 권한은 WITH GRANT OPTION이에요.\n\n**ADMIN OPTION으로 나눠 준 시스템 권한은 중간 사람의 권한을 회수해도 따라서 회수되지 않아요. GRANT OPTION으로 나눠 준 객체 권한은 중간 사람의 권한을 회수하면 그가 준 권한까지 줄줄이(CASCADE) 회수돼요.** Oracle은 객체 권한은 '누가 누구에게 줬는지'를 따라가며 함께 회수하고, 시스템 권한은 따라가지 않도록 정해 두었어요.\n\n이 문제에서 B는 ADMIN OPTION으로 CREATE TABLE을 받아 C에게 줬어요. DBA가 B에게서 회수해도 C의 권한은 남아요.\n\nD는 GRANT OPTION으로 SELECT ON T를 받아 E에게 줬어요. A가 D에게서 회수하면 E의 권한도 같이 사라져요.\n\n결론은 C 유지, E 상실이에요.",
   st: [
+    { t: "SQL 한 줄씩 읽기 (명령마다 권한 상태)", n: "-- [시스템 권한]\nGRANT CREATE TABLE TO B WITH ADMIN OPTION;  -- B: 있음(나눠 줄 수 있음)\nGRANT CREATE TABLE TO C;                    -- (B가 실행) C: 있음\nREVOKE CREATE TABLE FROM B;                 -- B: 없음, C: 그대로 있음 (연쇄 회수 X)\n-- [객체 권한]\nGRANT SELECT ON T TO D WITH GRANT OPTION;   -- (A가 실행) D: 있음(나눠 줄 수 있음)\nGRANT SELECT ON A.T TO E;                   -- (D가 실행) E: 있음\nREVOKE SELECT ON T FROM D;                  -- D: 없음, E: 같이 없음 (연쇄 회수 O)" },
     { t: "[원본] 두 옵션 비교", tb: { c: ["구분", "WITH ADMIN OPTION", "WITH GRANT OPTION"], r: [["대상", "시스템 권한 · 롤", "객체 권한"], ["재부여", "가능", "가능"], ["중간 사용자 회수 시", "연쇄 회수 없음", "연쇄 회수"], ["이 문제", "C 유지", "E 상실"]], hl: [2] } }
   ],
-  ox: ["정답.", "ADMIN OPTION도 GRANT OPTION처럼 연쇄 회수된다고 본 경우다.", "GRANT OPTION도 연쇄 회수되지 않는다고 본 경우다.", "두 옵션의 연쇄 회수 규칙을 서로 바꾼 경우다."],
-  trap: "'ADMIN은 어드민답게 독립적(연쇄 X), GRANT는 줄줄이 회수(연쇄 O)'로 외운다. 권한 회수는 Oracle의 권한 체계 문제라 DB 검증을 생략한다.",
+  ox: ["정답이에요. 시스템 권한은 연쇄 회수가 없어 C는 유지, 객체 권한은 연쇄 회수돼서 E는 상실이에요.", "이렇게 생각하면 틀려요: 'ADMIN OPTION도 GRANT OPTION처럼 줄줄이 회수된다'. 시스템 권한은 연쇄 회수되지 않아요.", "이렇게 생각하면 틀려요: 'GRANT OPTION도 연쇄 회수가 없다'. 객체 권한은 준 사람의 권한이 사라지면 받은 사람 것도 사라져요.", "이렇게 생각하면 틀려요: 두 옵션의 규칙을 서로 바꿨어요. 연쇄 회수가 되는 쪽은 객체 권한(GRANT OPTION)이에요."],
+  trap: "'ADMIN은 어드민답게 혼자 독립(연쇄 X), GRANT는 줄줄이 회수(연쇄 O)'로 외워요. 권한 회수는 Oracle 권한 체계 문제라 DB 검증은 생략했어요.",
   memo: "ADMIN OPTION 연쇄 X / GRANT OPTION 연쇄 O"
 }
 );
