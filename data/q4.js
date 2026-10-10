@@ -289,9 +289,10 @@
   sql: "SELECT ID,\n       CASE WHEN SAL >= 100 THEN 'A'\n            WHEN SAL >= 300 THEN 'B'\n            ELSE 'C'\n       END AS GRADE\n  FROM T;",
   o: ["C, A, A", "C, A, B", "A, A, B", "C, B, B"],
   a: 0,
-  why: "CASE는 위에서부터 WHEN 조건을 차례로 검사하고, 처음으로 참이 되는 THEN 값을 돌려준 뒤 멈춘다. 350은 첫 조건 SAL >= 100에서 이미 참이 되므로 두 번째 조건(>= 300)까지 가지 않는다.",
+  why: "CASE는 위에서부터 WHEN 조건을 차례로 검사하고, **처음으로 참이 되는 THEN 값을 돌려준 뒤 멈춘다**(Oracle 문서: 조건이 참인 첫 번째 WHEN…THEN 쌍을 찾는다). 프로그래밍의 if … else if … else와 같은 구조다. 왜 이렇게 정했냐면, CASE는 한 행에 결과를 하나만 정하는 문법이기 때문이다. 350은 >= 100도 참이고 >= 300도 참인데, 끝까지 다 검사하면 A와 B 중 무엇을 돌려줄지 정할 수 없다. 그래서 '먼저 걸린 쪽이 이긴다'로 정해 두었고, 아래 WHEN은 '위 조건들은 다 아니고 이것이면'이라는 뜻이 된다. 이 SQL에서는 300 이상이면 항상 100 이상이기도 하므로 **두 번째 줄(B)은 절대 실행되지 않는다**.",
   st: [
-    { t: "행별 평가", tb: { c: ["ID", "SAL", "SAL >= 100", "SAL >= 300", "GRADE"], r: [[1, 50, "F", "F", "C (ELSE)"], [2, 150, "T", "—", "A"], [3, 350, "T", "검사 안 함", "A"]], hl: [2] } }
+    { t: "행별 평가", tb: { c: ["ID", "SAL", "SAL >= 100", "SAL >= 300", "GRADE"], r: [[1, 50, "F", "F", "C (ELSE)"], [2, 150, "T", "—", "A"], [3, 350, "T", "검사 안 함", "A"]], hl: [2] } },
+    { t: "의도대로 쓰려면: 좁은 조건을 위로", n: "SELECT ID,\n       CASE WHEN SAL >= 300 THEN 'B'\n            WHEN SAL >= 100 THEN 'A'\n            ELSE 'C'\n       END AS GRADE\n  FROM T;   -- 50→C, 150→A, 350→B" }
   ],
   res: { c: ["ID", "GRADE"], r: [[1, "C"], [2, "A"], [3, "A"]] },
   pg: "SELECT ID, CASE WHEN SAL >= 100 THEN 'A' WHEN SAL >= 300 THEN 'B' ELSE 'C' END FROM T ORDER BY ID",
