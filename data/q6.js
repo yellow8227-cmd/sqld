@@ -549,6 +549,8 @@
   sum: "NATURAL JOIN과 USING은 같은 이름의 조인 컬럼(DEPTNO)을 하나로 합쳐서 5개 컬럼이에요. ON은 양쪽 DEPTNO를 모두 보여 줘서 6개라 ③이 달라요.",
   why: "NATURAL JOIN과 USING은 '이름이 같은 컬럼은 값도 같다'고 선언하는 문법이에요. 그래서 조인 컬럼을 양쪽 테이블의 두 컬럼이 아니라 하나로 합친 공통 컬럼으로 다뤄요.\n\nSELECT *를 하면 그 공통 컬럼(DEPTNO)을 맨 앞에 한 번만 보여 줘요. 나머지 컬럼은 각 테이블 순서대로 붙어요. 아우터 조인이어도 USING을 쓰면 똑같아요.\n\nON 절은 어떤 조건이든 쓸 수 있어요. ON E.DEPTNO < D.DEPTNO처럼 두 값이 다를 수도 있어요. 그래서 합치지 않고 양쪽 컬럼을 그대로 다 보여 줘요.\n\n**USING·NATURAL은 3 + 3 − 1 = 5개, ON은 3 + 3 = 6개예요.**\n\n보기를 대입해 볼게요. ①②④는 DEPTNO가 하나로 합쳐져 5개예요. ③만 E.DEPTNO와 D.DEPTNO가 따로 나와 6개예요.",
   st: [
+    { t: "실제 결과 ①②④: NATURAL JOIN · USING (아우터 조인이어도 같음)", tb: { c: ["DEPTNO","EMPNO","ENAME","DNAME","LOC"], r: [[10,1,"A","SALES","SEOUL"]] }, n: "DEPTNO가 맨 앞에 한 번만 나와요 → 5개" },
+    { t: "실제 결과 ③: ON", tb: { c: ["EMPNO","ENAME","DEPTNO","DEPTNO","DNAME","LOC"], r: [[1,"A",10,10,"SALES","SEOUL"]] }, n: "EMP의 DEPTNO와 DEPT의 DEPTNO가 따로 나와요 → 6개" },
     { t: "SELECT * 결과 컬럼", tb: { c: ["SQL","컬럼 목록","개수"], r: [["① NATURAL JOIN","DEPTNO, EMPNO, ENAME, DNAME, LOC",5],["② JOIN USING","DEPTNO, EMPNO, ENAME, DNAME, LOC",5],["③ JOIN ON","EMPNO, ENAME, DEPTNO, DEPTNO, DNAME, LOC",6],["④ LEFT JOIN USING","DEPTNO, EMPNO, ENAME, DNAME, LOC",5]], hl: [2] } },
     { t: "예시: 합쳐진 조인 컬럼 쓰는 법 (Oracle)", n: "SELECT DEPTNO, ENAME, DNAME FROM EMP JOIN DEPT USING (DEPTNO);    -- 정상: 공통 컬럼은 앞에 테이블 이름 없이\nSELECT E.DEPTNO, ENAME FROM EMP E JOIN DEPT D USING (DEPTNO);    -- 오류 ORA-25154: USING 컬럼에는 E.를 붙일 수 없어요\nSELECT DEPTNO FROM EMP NATURAL JOIN DEPT;                        -- 정상\nSELECT E.DEPTNO FROM EMP E NATURAL JOIN DEPT D;                  -- 오류 ORA-25155: NATURAL JOIN 컬럼에도 E.를 붙일 수 없어요\nSELECT E.DEPTNO, D.DEPTNO FROM EMP E JOIN DEPT D ON E.DEPTNO = D.DEPTNO;  -- 정상: ON은 두 컬럼이 따로 있어요" }
   ],
