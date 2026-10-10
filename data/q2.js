@@ -25,7 +25,7 @@
 {
   id: "S02", s: 2, tp: "agg", lv: 2,
   th: "2과목 | AVG(컬럼) vs AVG(NVL(컬럼, 0)) — 분모 차이",
-  q: "S01과 같은 [T] 테이블에 대해 다음 SQL을 실행한 결과로 옳은 것은?",
+  q: "아래 [T] 테이블에 대해 다음 SQL을 실행한 결과로 옳은 것은?",
   tb: [{ n: "T", c: ["ID", "DEPT", "BONUS"], r: [[1, 10, 100], [2, 10, null], [3, 20, 200], [4, null, 200], [5, 20, null], [6, 30, null]] }],
   sql: "SELECT SUM(BONUS)               AS S,\n       ROUND(AVG(BONUS))        AS A1,\n       ROUND(AVG(NVL(BONUS, 0))) AS A2\n  FROM T;",
   o: ["500, 167, 83", "500, 83, 83", "500, 167, 167", "NULL, 167, 83"],
@@ -68,7 +68,7 @@
 {
   id: "S04", s: 2, tp: "notin", lv: 3,
   th: "2과목 | NOT IN · NOT EXISTS · 아우터 조인 동치 비교",
-  q: "S03과 같은 [EMP] 테이블에서 다음 SQL 중 결과 건수가 나머지 셋과 다른 것은?",
+  q: "아래 [EMP] 테이블에서 다음 SQL 중 결과 건수가 나머지 셋과 다른 것은?",
   tb: [{ n: "EMP", c: ["EMPNO", "ENAME", "MGR"], r: [[1001, "KING", null], [1002, "JONES", 1001], [1003, "SCOTT", 1002], [1004, "ADAMS", 1003], [1005, "FORD", 1002]] }],
   sql: "① SELECT * FROM EMP A\n   WHERE A.EMPNO NOT IN (SELECT MGR FROM EMP WHERE MGR IS NOT NULL);\n\n② SELECT * FROM EMP A\n   WHERE NOT EXISTS (SELECT 1 FROM EMP B WHERE B.MGR = A.EMPNO);\n\n③ SELECT A.* FROM EMP A LEFT OUTER JOIN EMP B\n     ON B.MGR = A.EMPNO\n   WHERE B.EMPNO IS NULL;\n\n④ SELECT * FROM EMP A\n   WHERE A.EMPNO NOT IN (SELECT MGR FROM EMP);",
   o: ["①", "②", "③", "④"],
@@ -167,7 +167,7 @@
 {
   id: "S09", s: 2, tp: "join", lv: 3,
   th: "2과목 | 아우터 조인의 ON 절 추가 조건",
-  q: "S08과 같은 테이블에 대해 다음 SQL을 실행했을 때 C1, C2 값은?",
+  q: "아래 테이블에 대해 다음 SQL을 실행했을 때 C1, C2 값은?",
   tb: [
     { n: "EMP", c: ["ENAME", "DEPTNO"], r: [["A", 10], ["B", 20], ["C", 30], ["D", null]] },
     { n: "DEPT", c: ["DEPTNO", "LOC"], r: [[10, "SEOUL"], [20, "BUSAN"], [40, "DAEGU"]] }
@@ -234,14 +234,14 @@
   ],
   res: { c: ["COUNT(*)"], r: [[6]] },
   pg: "SELECT COUNT(*) FROM T1 FULL OUTER JOIN T2 ON T1.A = T2.A",
-  ox: ["이렇게 생각하면 틀려요: 'NULL끼리 짝이 되고, 2의 중복도 하나로 친다.' 둘 다 아니에요.", "이렇게 생각하면 틀려요: 'NULL끼리는 같으니 한 번 짝지어진다.' 그러면 6 − 1 = 5가 되지만, 조인에서 NULL = NULL은 '모름'이라 짝이 안 돼요.", "정답이에요.", "이렇게 생각하면 틀려요: '두 표 행 수를 그냥 더하면 된다(4 + 3).' 짝이 맞은 2들은 한 행으로 합쳐지니 그보다 1 적은 6이에요."],
+  ox: ["이렇게 생각하면 틀려요: 'NULL끼리 짝이 되고, 2의 중복도 하나로 친다.' 둘 다 아니에요.", "이렇게 생각하면 틀려요: 'NULL끼리는 같으니 한 번 짝지어진다.' 그러면 6 − 1 = 5가 되지만, 조인에서 NULL = NULL은 '모름'이라 짝이 안 돼요.", "정답이에요.", "이렇게 생각하면 틀려요: '두 표 행 수를 그냥 더하면 된다(4 + 3).' T2의 2 하나가 T1의 2 두 개와 각각 이어져서, 입력 3행(T1의 2 두 개 + T2의 2 하나)이 결과 2행이 돼요. 그래서 7 − 1 = 6이에요."],
   trap: "NULL끼리 같다고 보면 5가 나와요. 조인 조건에서 NULL은 절대 짝이 되지 않아요.",
   memo: "FULL = 매칭 + 왼쪽만 + 오른쪽만, NULL은 매칭 불가"
 },
 {
   id: "S12", s: 2, tp: "join", lv: 2,
   th: "2과목 | NATURAL JOIN · USING 절의 접두사 제약",
-  q: "EMP와 DEPT 테이블의 공통 컬럼이 DEPTNO 하나뿐일 때, 다음 중 오류가 발생하는 SQL은?",
+  q: "EMP와 DEPT 테이블의 공통 컬럼이 DEPTNO 하나뿐일 때, 다음 중 오류가 발생하는 SQL은? (Oracle 기준)",
   sql: "① SELECT DEPTNO, ENAME, DNAME FROM EMP NATURAL JOIN DEPT;\n② SELECT E.DEPTNO, ENAME FROM EMP E NATURAL JOIN DEPT D;\n③ SELECT DEPTNO, ENAME FROM EMP E JOIN DEPT D USING (DEPTNO);\n④ SELECT E.DEPTNO, E.ENAME FROM EMP E JOIN DEPT D ON E.DEPTNO = D.DEPTNO;",
   o: ["①", "②", "③", "④"],
   a: 1,
@@ -304,7 +304,7 @@
 {
   id: "S15", s: 2, tp: "grp", lv: 2,
   th: "2과목 | CUBE 결과 행 수",
-  q: "S14와 같은 [SALES] 테이블에 대해 다음 SQL의 결과 행 수는?",
+  q: "아래 [SALES] 테이블에 대해 다음 SQL의 결과 행 수는?",
   tb: [{ n: "SALES", c: ["REGION", "PROD", "AMT"], r: [["SEOUL", "A", 100], ["SEOUL", "B", 200], ["SEOUL", "A", 50], ["BUSAN", "A", 300], ["BUSAN", "C", 100]] }],
   sql: "SELECT REGION, PROD, SUM(AMT)\n  FROM SALES\n GROUP BY CUBE(REGION, PROD);",
   o: ["7", "9", "10", "12"],
@@ -324,7 +324,7 @@
 {
   id: "S16", s: 2, tp: "grp", lv: 3,
   th: "2과목 | ROLLUP 복합 괄호 · GROUPING SETS · GROUPING 함수",
-  q: "S14와 같은 [SALES] 테이블에 대해 다음 GROUP BY 절 중 결과 행 수가 나머지 셋과 다른 것은?",
+  q: "아래 [SALES] 테이블에 대해 다음 GROUP BY 절 중 결과 행 수가 나머지 셋과 다른 것은?",
   tb: [{ n: "SALES", c: ["REGION", "PROD", "AMT"], r: [["SEOUL", "A", 100], ["SEOUL", "B", 200], ["SEOUL", "A", 50], ["BUSAN", "A", 300], ["BUSAN", "C", 100]] }],
   sql: "① GROUP BY ROLLUP(REGION, PROD)\n② GROUP BY GROUPING SETS((REGION, PROD), REGION, ())\n③ GROUP BY ROLLUP((REGION, PROD))\n④ GROUP BY CUBE(REGION, PROD)\n   HAVING GROUPING(REGION) = 0 OR GROUPING(PROD) = 1",
   o: ["①", "②", "③", "④"],
@@ -348,8 +348,8 @@
   q: "다음 SQL에서 이름이 '라'인 행의 R1, R2, R3 값은?",
   tb: [{ n: "SCORE", c: ["NAME", "PT"], r: [["가", 90], ["나", 85], ["다", 90], ["라", 80], ["마", 85]] }],
   sql: "SELECT NAME, PT,\n       RANK()       OVER (ORDER BY PT DESC) AS R1,\n       DENSE_RANK() OVER (ORDER BY PT DESC) AS R2,\n       ROW_NUMBER() OVER (ORDER BY PT DESC) AS R3\n  FROM SCORE;",
-  o: ["5, 3, 5", "4, 3, 5", "5, 3, 4", "3, 3, 5"],
-  a: 0,
+  o: ["3, 3, 5", "4, 3, 5", "5, 3, 4", "5, 3, 5"],
+  a: 3,
   sum: "'라'는 혼자 꼴찌예요. 앞에 4명이 있어 RANK는 5, 서로 다른 점수(90, 85) 다음이라 DENSE_RANK는 3, 다섯 번째 줄이라 ROW_NUMBER는 5예요.",
   why: "세 함수 모두 PT 높은 순으로 번호를 매겨요. **차이는 '동점(같은 PT)을 어떻게 처리하느냐' 하나뿐이에요.**\n\nRANK는 동점자에게 같은 순위를 주고, 동점자 수만큼 다음 번호를 비워요. 올림픽처럼 공동 1위가 2명이면 다음은 3위예요.\n\nDENSE_RANK는 같은 순위를 주되 번호를 비우지 않아요. 공동 1위 다음은 2위예요.\n\nROW_NUMBER는 동점이어도 1, 2, 3…처럼 무조건 다른 번호를 줘요.\n\n이 표는 90이 2명, 85가 2명이고 '라'(80)는 혼자 꼴찌예요. 그래서 '라'는 RANK 5(앞에 4명), DENSE_RANK 3(90, 85 다음), ROW_NUMBER 5(다섯 번째 줄)예요.",
   st: [
@@ -358,7 +358,7 @@
   ],
   res: { c: ["NAME", "R1", "R2", "R3"], r: [["라", 5, 3, 5]] },
   pg: "SELECT NAME, R1, R2, R3 FROM (SELECT NAME, RANK() OVER (ORDER BY PT DESC) R1, DENSE_RANK() OVER (ORDER BY PT DESC) R2, ROW_NUMBER() OVER (ORDER BY PT DESC) R3 FROM SCORE) X WHERE NAME = '라'",
-  ox: ["정답이에요.", "이렇게 생각하면 틀려요: '앞 사람 수가 곧 순위다.' 앞에 4명이 있으면 RANK는 4 + 1 = 5예요.", "이렇게 생각하면 틀려요: 'ROW_NUMBER도 동점을 같게 친다.' ROW_NUMBER는 1~5를 하나씩 써서 '라'는 5예요.", "이렇게 생각하면 틀려요: 'RANK도 번호를 건너뛰지 않는다.' 그건 DENSE_RANK예요. RANK는 공동 순위 뒤를 비워요."],
+  ox: ["이렇게 생각하면 틀려요: 'RANK도 번호를 건너뛰지 않는다.' 그건 DENSE_RANK예요. RANK는 공동 순위 뒤를 비워요.", "이렇게 생각하면 틀려요: '앞 사람 수가 곧 순위다.' 앞에 4명이 있으면 RANK는 4 + 1 = 5예요.", "이렇게 생각하면 틀려요: ''라' 앞에 4명이 있으니 ROW_NUMBER는 4다.' 앞 사람 수에 자기 자신 1을 더해야 해요. ROW_NUMBER는 1~5를 하나씩 써서 '라'는 5예요.", "정답이에요."],
   trap: "세 함수의 차이는 '동점 처리'뿐이에요. 동점이 없다면 세 결과는 같아요.",
   memo: "RANK 1,1,3 / DENSE 1,1,2 / ROW_NUMBER 1,2,3"
 },
@@ -387,20 +387,20 @@
 {
   id: "S19", s: 2, tp: "win", lv: 2,
   th: "2과목 | ROWS 프레임 — 이동 합계",
-  q: "다음 SQL의 결과를 SAL 오름차순으로 나열했을 때 MSUM 값은?",
+  q: "다음 SQL의 결과에서 MSUM 값을 위에서부터 차례로 나열한 것은?",
   tb: [{ n: "T", c: ["ID", "SAL"], r: [[1, 100], [2, 200], [3, 200], [4, 300]] }],
-  sql: "SELECT ID, SAL,\n       SUM(SAL) OVER (ORDER BY SAL\n                      ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) AS MSUM\n  FROM T;",
-  o: ["300, 500, 700, 500", "300, 600, 700, 500", "100, 300, 500, 800", "300, 500, 500, 500"],
-  a: 0,
+  sql: "SELECT ID, SAL,\n       SUM(SAL) OVER (ORDER BY SAL, ID\n                      ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) AS MSUM\n  FROM T\n ORDER BY SAL, ID;",
+  o: ["300, 500, 500, 500", "300, 600, 700, 500", "100, 300, 500, 800", "300, 500, 700, 500"],
+  a: 3,
   sum: "ROWS는 실제 줄 기준으로 '바로 앞 1줄 + 나 + 바로 뒤 1줄'을 더해요. 100,200,200,300 순서에서 300, 500, 700, 500이에요.",
   why: "ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING은 정렬된 결과에서 '바로 앞 1줄, 현재 줄, 바로 뒤 1줄'을 더해요. 줄 개수로 범위를 잡는 방식이에요.\n\nRANGE와 달리 값이 같은지는 따지지 않아요. **SAL이 같은 두 200 행도 서로 다른 위치의 줄로 취급해요.**\n\n범위는 처음과 끝을 넘을 수 없어요. 그래서 첫 줄은 앞 줄 없이 2개, 마지막 줄은 뒤 줄 없이 2개만 더해요.\n\n순서 100, 200, 200, 300에 대입해 볼게요. 첫 줄은 100 + 200 = 300이에요. 둘째 줄은 100 + 200 + 200 = 500이에요. 셋째 줄은 200 + 200 + 300 = 700이에요. 넷째 줄은 200 + 300 = 500이에요.\n\n그래서 300, 500, 700, 500이에요.",
   st: [
-    { t: "SQL 한 줄씩 읽기", n: "SELECT ID, SAL,\n       SUM(SAL) OVER (ORDER BY SAL                                   -- ② SAL 순: 100, 200, 200, 300\n                      ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) AS MSUM -- ③ 앞 1줄 + 나 + 뒤 1줄\n  FROM T;                                                           -- ① 4행\n-- 300, 500, 700, 500" },
-    { t: "행별 프레임", tb: { c: ["순서", "SAL", "프레임에 포함된 값", "MSUM"], r: [[1, 100, "100, 200", 300], [2, 200, "100, 200, 200", 500], [3, 200, "200, 200, 300", 700], [4, 300, "200, 300", 500]] }, n: "SAL이 같은 두 줄의 순서가 바뀌어도 값이 같아서 결과는 똑같아요." }
+    { t: "SQL 한 줄씩 읽기", n: "SELECT ID, SAL,\n       SUM(SAL) OVER (ORDER BY SAL, ID                               -- ② SAL 순(같으면 ID 순): ID 1, 2, 3, 4\n                      ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) AS MSUM -- ③ 앞 1줄 + 나 + 뒤 1줄\n  FROM T                                                            -- ① 4행\n ORDER BY SAL, ID;                                                  -- ④ 같은 순서로 출력\n-- 300, 500, 700, 500" },
+    { t: "행별 프레임", tb: { c: ["순서", "SAL", "프레임에 포함된 값", "MSUM"], r: [[1, 100, "100, 200", 300], [2, 200, "100, 200, 200", 500], [3, 200, "200, 200, 300", 700], [4, 300, "200, 300", 500]] }, n: "SAL이 같은 두 줄(ID 2, 3)은 ID로 순서를 정해 줘서 ID 2가 500, ID 3이 700을 받아요. ID를 빼고 ORDER BY SAL만 쓰면 두 줄 중 어느 쪽이 먼저인지 정해지지 않아서, 500과 700이 어느 ID에 붙을지 알 수 없어요." }
   ],
-  res: { c: ["SAL", "MSUM"], r: [[100, 300], [200, 500], [200, 700], [300, 500]] },
-  pg: "SELECT SAL, SUM(SAL) OVER (ORDER BY SAL ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) MSUM FROM T ORDER BY SAL, MSUM",
-  ox: ["정답이에요.", "이렇게 생각하면 틀려요: '값 기준으로 앞뒤(100, 200, 300)를 더한다.' 그러면 둘째 줄이 600이 돼요. ROWS는 바로 뒤 줄인 또 다른 200을 더해서 500이에요.", "이렇게 생각하면 틀려요: '처음부터 누적해서 더한다.' 100, 300, 500, 800은 기본 누적 합이에요. 이 문제는 앞뒤 1줄만 더해요.", "이렇게 생각하면 틀려요: '같은 값 두 줄은 결과도 같다.' 그건 RANGE의 성질이에요. ROWS에서는 위치가 달라서 500과 700으로 갈려요."],
+  res: { c: ["ID", "SAL", "MSUM"], r: [[1, 100, 300], [2, 200, 500], [3, 200, 700], [4, 300, 500]] },
+  pg: "SELECT ID, SAL, SUM(SAL) OVER (ORDER BY SAL, ID ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) MSUM FROM T ORDER BY SAL, ID",
+  ox: ["이렇게 생각하면 틀려요: '같은 값 두 줄은 결과도 같다.' 그건 RANGE의 성질이에요. ROWS에서는 위치가 달라서 500과 700으로 갈려요.", "이렇게 생각하면 틀려요: '값 기준으로 앞뒤(100, 200, 300)를 더한다.' 그러면 둘째 줄이 600이 돼요. ROWS는 바로 뒤 줄인 또 다른 200을 더해서 500이에요.", "이렇게 생각하면 틀려요: '처음부터 누적해서 더한다.' 100, 300, 500, 800은 기본 누적 합이에요. 이 문제는 앞뒤 1줄만 더해요.", "정답이에요."],
   trap: "ROWS에서는 같은 값이라도 다른 줄로 취급해서, 두 개의 200 줄이 서로 다른 값을 받아요.",
   memo: "ROWS = 실제 줄 개수, RANGE = 값의 범위"
 },
@@ -410,8 +410,8 @@
   q: "다음 SQL의 결과를 ID 순서대로 나열했을 때 RSUM 값은?",
   tb: [{ n: "T", c: ["ID", "SAL"], r: [[1, 100], [2, 200], [3, 200], [4, 300]] }],
   sql: "SELECT ID, SAL,\n       SUM(SAL) OVER (ORDER BY SAL\n                      RANGE BETWEEN 100 PRECEDING AND CURRENT ROW) AS RSUM\n  FROM T;",
-  o: ["100, 500, 500, 700", "100, 300, 400, 500", "100, 300, 500, 700", "100, 500, 500, 800"],
-  a: 0,
+  o: ["100, 500, 500, 800", "100, 300, 400, 500", "100, 300, 500, 700", "100, 500, 500, 700"],
+  a: 3,
   sum: "RANGE 100 PRECEDING은 '100줄 앞'이 아니라 '값이 100 작은 데까지'예요. ID 4(300)는 200~300 구간이라 100이 빠져 700이에요.",
   why: "RANGE의 'n PRECEDING'은 n줄 앞이 아니에요. '정렬 값이 현재 값 − n 이상'이라는 값 구간이에요.\n\n그래서 RANGE BETWEEN 100 PRECEDING AND CURRENT ROW는 SAL이 [현재 SAL − 100, 현재 SAL] 안에 드는 모든 행을 더해요. RANGE에서 CURRENT ROW는 '현재 값과 같은 행 전부'를 뜻해요.\n\n이렇게 값으로 잡는 이유는 '최근 7일', '±100원'처럼 줄 수와 상관없는 범위를 계산하기 위해서예요.\n\n대입해 볼게요. ID 1은 [0, 100]이라 100만 들어가요. ID 2·3은 [100, 200]이라 100·200·200이 들어가 500이에요. **ID 4는 [200, 300]이라 100이 빠지고 200 + 200 + 300 = 700이에요.**\n\n그래서 100, 500, 500, 700이에요.",
   st: [
@@ -420,7 +420,7 @@
   ],
   res: { c: ["ID", "RSUM"], r: [[1, 100], [2, 500], [3, 500], [4, 700]] },
   pg: "SELECT ID, SUM(SAL) OVER (ORDER BY SAL RANGE BETWEEN 100 PRECEDING AND CURRENT ROW) RSUM FROM T ORDER BY ID",
-  ox: ["정답이에요.", "이렇게 생각하면 틀려요: '100 PRECEDING은 1줄 앞이다.' 100, 300, 400, 500은 줄 기준(ROWS 1 PRECEDING)으로 계산한 값이에요. RANGE의 100은 값의 폭이에요.", "이렇게 생각하면 틀려요: '같은 값도 한 줄씩 따로 쌓인다.' 그러면 ID 2가 300이 돼요. RANGE의 CURRENT ROW는 같은 값 200을 모두 넣어서 ID 2도 500이에요.", "이렇게 생각하면 틀려요: '아래쪽 끝(−100)은 신경 안 써도 된다.' 그러면 그냥 누적 합(800)이에요. ID 4의 구간에는 100이 들어가지 않아요."],
+  ox: ["이렇게 생각하면 틀려요: '아래쪽 끝(−100)은 신경 안 써도 된다.' 그러면 그냥 누적 합(800)이에요. ID 4의 구간에는 100이 들어가지 않아요.", "이렇게 생각하면 틀려요: '100 PRECEDING은 1줄 앞이다.' 100, 300, 400, 500은 줄 기준(ROWS 1 PRECEDING)으로 계산한 값이에요. RANGE의 100은 값의 폭이에요.", "이렇게 생각하면 틀려요: '같은 값도 한 줄씩 따로 쌓인다.' 그러면 ID 2가 300이 돼요. RANGE의 CURRENT ROW는 같은 값 200을 모두 넣어서 ID 2도 500이에요.", "정답이에요."],
   trap: "ID 4(300)는 100을 포함하지 않아요. 구간이 200~300이기 때문이에요.",
   memo: "RANGE n PRECEDING = 값이 n만큼 작은 데까지"
 },
@@ -430,8 +430,8 @@
   q: "다음 SQL에서 ID가 1인 행의 LV1, LV2 값은?",
   tb: [{ n: "T", c: ["ID", "SAL"], r: [[1, 100], [2, 200], [3, 300]] }],
   sql: "SELECT ID,\n       LAST_VALUE(SAL) OVER (ORDER BY ID) AS LV1,\n       LAST_VALUE(SAL) OVER (ORDER BY ID\n            ROWS BETWEEN UNBOUNDED PRECEDING\n                     AND UNBOUNDED FOLLOWING) AS LV2\n  FROM T;",
-  o: ["100, 300", "300, 300", "100, 100", "300, 100"],
-  a: 0,
+  o: ["300, 100", "300, 300", "100, 100", "100, 300"],
+  a: 3,
   sum: "ORDER BY만 쓰면 범위가 '처음부터 지금 줄까지'라서, LAST_VALUE는 자기 값(100)을 돌려줘요. 범위를 끝까지 연 LV2만 진짜 마지막 값 300이에요.",
   why: "OVER에 ORDER BY만 쓰면 기본 범위는 '처음부터 현재 줄까지'예요.\n\nLAST_VALUE는 '범위 안의' 마지막 값을 돌려주는 함수예요. 전체의 마지막 값이 아니에요.\n\n**범위가 현재 줄에서 끝나니까, LV1은 항상 자기 자신의 값이 돼요.** ID 1이면 100이에요. ID는 서로 달라서 같이 묶이는 줄도 없어요.\n\nLV2는 범위를 UNBOUNDED FOLLOWING(끝까지)으로 열었어요. 범위가 전체라서 모든 줄에서 마지막 값 300이에요.\n\n그래서 ID 1 행은 100, 300이에요.",
   st: [
@@ -441,7 +441,7 @@
   ],
   res: { c: ["ID", "LV1", "LV2"], r: [[1, 100, 300]] },
   pg: "SELECT * FROM (SELECT ID, LAST_VALUE(SAL) OVER (ORDER BY ID) LV1, LAST_VALUE(SAL) OVER (ORDER BY ID ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) LV2 FROM T) X WHERE ID = 1",
-  ox: ["정답이에요.", "이렇게 생각하면 틀려요: 'LAST_VALUE는 언제나 전체의 마지막 값이다.' 기본 범위는 지금 줄에서 끝나서 LV1은 자기 값이에요.", "이렇게 생각하면 틀려요: 'LV2도 기본 범위다.' 범위를 끝까지 열었으니 300이에요.", "이렇게 생각하면 틀려요: 두 범위를 서로 바꿔 본 경우예요. 범위를 연 쪽이 LV2예요."],
+  ox: ["이렇게 생각하면 틀려요: 두 범위를 서로 바꿔 본 경우예요. 범위를 연 쪽이 LV2예요.", "이렇게 생각하면 틀려요: 'LAST_VALUE는 언제나 전체의 마지막 값이다.' 기본 범위는 지금 줄에서 끝나서 LV1은 자기 값이에요.", "이렇게 생각하면 틀려요: 'LV2도 기본 범위다.' 범위를 끝까지 열었으니 300이에요.", "정답이에요."],
   trap: "FIRST_VALUE는 기본 범위에서도 맨 처음 값을 제대로 돌려주지만, LAST_VALUE는 그렇지 않아요. 두 함수의 이 차이가 출제 포인트예요.",
   memo: "LAST_VALUE는 UNBOUNDED FOLLOWING 필수"
 },

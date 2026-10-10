@@ -10,8 +10,8 @@
     { n: "SRC", c: ["ID", "V"], r: [[2, "X"], [3, "Y"]] }
   ],
   sql: "MERGE INTO TGT T\nUSING SRC S\n   ON (T.ID = S.ID)\n WHEN MATCHED THEN\n      UPDATE SET T.V = S.V\n WHEN NOT MATCHED THEN\n      INSERT (ID, V) VALUES (S.ID, S.V);",
-  o: ["(1, A), (2, X), (3, Y)", "(1, A), (2, B), (3, Y)", "(2, X), (3, Y)", "(1, A), (2, X)"],
-  a: 0,
+  o: ["(1, A), (2, B), (3, Y)", "(1, A), (2, X), (3, Y)", "(2, X), (3, Y)", "(1, A), (2, X)"],
+  a: 1,
   sum: "MERGE는 SRC의 행을 하나씩 꺼내서 TGT에 짝이 있으면 고치고, 없으면 새로 넣어요. SRC에 없는 TGT 행(ID 1)은 아무도 건드리지 않아서 그대로 남아요.",
   why: "MERGE는 '있으면 고치고, 없으면 넣는' 명령이에요. USING 쪽(SRC)의 행을 하나씩 꺼내서, ON 조건으로 대상(TGT)에 짝이 있는지 찾아봐요.\n\n짝이 있으면 WHEN MATCHED(짝 있음) 절의 UPDATE를 하고, 짝이 없으면 WHEN NOT MATCHED(짝 없음) 절의 INSERT를 해요. 일의 출발점이 SRC 행이라는 게 중요해요.\n\n**SRC에 짝이 없는 TGT 행은 어느 절에도 걸리지 않아서 그대로 남아요.** MERGE는 'TGT를 SRC와 똑같이 맞추는 동기화'가 아니에요.\n\n이 문제에 대입해 볼게요. SRC의 (2, X)는 TGT에 ID 2가 있으니 짝이 있어요. 그래서 V가 B에서 X로 바뀌어요.\n\nSRC의 (3, Y)는 TGT에 ID 3이 없으니 짝이 없어요. 그래서 (3, Y)가 새로 들어가요. TGT의 (1, A)는 SRC에 없으니 아무 일도 일어나지 않아요.\n\n그래서 결과는 (1, A), (2, X), (3, Y)예요.",
   st: [
@@ -21,12 +21,7 @@
   ],
   res: { c: ["ID", "V"], r: [[1, "A"], [2, "X"], [3, "Y"]] },
   pg: "MERGE INTO TGT T USING SRC S ON (T.ID = S.ID) WHEN MATCHED THEN UPDATE SET V = S.V WHEN NOT MATCHED THEN INSERT (ID, V) VALUES (S.ID, S.V); SELECT ID, V FROM TGT ORDER BY ID",
-  ox: [
-    "정답이에요. ID 2는 짝이 있어서 X로 고쳐지고, ID 3은 짝이 없어서 새로 들어가요. ID 1은 SRC에 없으니 그대로 남아요.",
-    "이렇게 생각하면 틀려요: '이미 있는 행은 안 건드린다.' ID 2는 SRC와 짝이 맞으니 WHEN MATCHED의 UPDATE가 실행돼서 B가 X로 바뀌어요.",
-    "이렇게 생각하면 틀려요: 'MERGE는 TGT를 SRC와 똑같이 맞춘다.' MERGE는 SRC 행에서 출발해요. SRC에 없는 ID 1은 어느 절에도 걸리지 않아서 지워지지 않아요.",
-    "이렇게 생각하면 틀려요: 'MERGE는 고치기만 한다.' SRC의 ID 3은 TGT에 짝이 없으니 WHEN NOT MATCHED의 INSERT로 새로 들어가요."
-  ],
+  ox: ["이렇게 생각하면 틀려요: '이미 있는 행은 안 건드린다.' ID 2는 SRC와 짝이 맞으니 WHEN MATCHED의 UPDATE가 실행돼서 B가 X로 바뀌어요.", "정답이에요. ID 2는 짝이 있어서 X로 고쳐지고, ID 3은 짝이 없어서 새로 들어가요. ID 1은 SRC에 없으니 그대로 남아요.", "이렇게 생각하면 틀려요: 'MERGE는 TGT를 SRC와 똑같이 맞춘다.' MERGE는 SRC 행에서 출발해요. SRC에 없는 ID 1은 어느 절에도 걸리지 않아서 지워지지 않아요.", "이렇게 생각하면 틀려요: 'MERGE는 고치기만 한다.' SRC의 ID 3은 TGT에 짝이 없으니 WHEN NOT MATCHED의 INSERT로 새로 들어가요."],
   trap: "MERGE는 동기화가 아니에요. SRC에 없는 TGT 행은 지워지지 않아요. 또 Oracle에서는 ON 절에 쓴 컬럼(ID)을 UPDATE SET으로 바꿀 수 없어요(ORA-38104).",
   memo: "MERGE = 짝 있으면 UPDATE, 없으면 INSERT, SRC에 없는 행은 그대로"
 },
@@ -290,7 +285,7 @@
   q: "다음 (가), (나) SQL의 결과 건수로 옳은 것은? (문자열 비교는 대소문자를 구분한다.)",
   tb: [{ n: "T", c: ["TXT"], r: [["A_C"], ["ABC"], ["A%C"], ["AXXC"], ["a_c"]] }],
   sql: "(가) SELECT COUNT(*) FROM T WHERE TXT LIKE 'A\\_C' ESCAPE '\\';\n(나) SELECT COUNT(*) FROM T WHERE TXT LIKE 'A_C';",
-  o: ["(가) 1, (나) 3", "(가) 1, (나) 4", "(가) 3, (나) 3", "(가) 2, (나) 3"],
+  o: ["(가) 1, (나) 3", "(가) 1, (나) 4", "(가) 3, (나) 3", "(가) 2, (나) 4"],
   a: 0,
   sum: "패턴 속 _는 '아무 글자 하나'예요. 그래서 (나)는 A와 C 사이에 한 글자가 있는 3건이 나오고, ESCAPE로 _를 진짜 밑줄로 바꾼 (가)는 A_C 1건만 나와요.",
   why: "LIKE 패턴에서 _는 '아무 글자 정확히 하나', %는 '아무 글자 0개 이상'을 뜻하는 특수 기호예요. 이런 기호를 와일드카드라고 불러요.\n\n그러면 밑줄 문자 자체를 찾고 싶을 땐 어떻게 할까요? ESCAPE로 정한 글자(여기선 \\)를 기호 앞에 붙이면, 그 기호는 특수 기능을 잃고 그냥 글자로 비교돼요.\n\n(가)는 \\_ 이니 'A + 밑줄 + C'만 찾아요. 그래서 A_C 1건이에요. (나)의 _는 '아무 한 글자'예요.\n\nA_C, ABC, A%C는 모두 A와 C 사이에 한 글자가 있어서 통과해요. AXXC는 사이에 두 글자라 빠지고, a_c는 소문자라 빠져요. 그래서 3건이에요.\n\n**특수 기호로 동작하는 건 패턴 쪽 기호뿐이에요. 데이터 안의 %나 _는 그냥 글자 하나예요.**",
@@ -304,7 +299,7 @@
     "정답이에요. (가)는 진짜 밑줄이 든 A_C 1건, (나)는 A와 C 사이에 한 글자가 있는 A_C, ABC, A%C 3건이에요.",
     "이렇게 생각하면 틀려요: '_는 여러 글자도 된다.' 그건 %예요. _는 정확히 한 글자라 AXXC는 빠져요.",
     "이렇게 생각하면 틀려요: 'ESCAPE가 있어도 \\_는 아무 한 글자다.' ESCAPE 표시가 붙은 _는 밑줄 글자 자체만 찾아요.",
-    "이렇게 생각하면 틀려요: '대소문자는 상관없다.' 문제 조건대로 대소문자를 구분하니 소문자 a_c는 (가)에 안 들어가요."
+    "이렇게 생각하면 틀려요: '대소문자는 상관없다.' 그러면 소문자 a_c도 들어가서 (가) 2건, (나) 4건이 돼요. 문제 조건대로 대소문자를 구분하니 a_c는 (가)·(나) 어디에도 안 들어가요."
   ],
   trap: "'A%C'의 %는 데이터 속 글자일 뿐이에요. 패턴 쪽에 있는 기호만 특수 기능을 해요.",
   memo: "_ = 한 글자, % = 0글자 이상, ESCAPE = 기호를 그냥 글자로"
@@ -508,7 +503,7 @@
 {
   id: "S65", s: 2, tp: "agg", lv: 2,
   th: "2과목 | GROUP BY에서 NULL 그룹",
-  q: "S01과 같은 [T] 테이블에 대해 다음 SQL의 결과 행 수는?",
+  q: "아래 [T] 테이블에 대해 다음 SQL의 결과 행 수는?",
   tb: [{ n: "T", c: ["ID", "DEPT", "BONUS"], r: [[1, 10, 100], [2, 10, null], [3, 20, 200], [4, null, 200], [5, 20, null], [6, 30, null]] }],
   sql: "SELECT DEPT, COUNT(*), SUM(BONUS)\n  FROM T\n GROUP BY DEPT;",
   o: ["3", "4", "5", "6"],

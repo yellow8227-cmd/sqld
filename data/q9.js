@@ -786,8 +786,8 @@
     { n: "EMP", c: ["ENO", "DNO", "SAL"], r: [[1, 10, 100], [2, 10, null], [3, 20, null]] }
   ],
   sql: "SELECT D.DNO,\n       (SELECT COUNT(*)   FROM EMP E WHERE E.DNO = D.DNO) AS CNT,\n       (SELECT SUM(E.SAL) FROM EMP E WHERE E.DNO = D.DNO) AS TOT\n  FROM DEPT D\n ORDER BY D.DNO;",
-  o: ["10(2, 100), 20(1, NULL), 30(0, NULL)", "10(2, 100), 20(1, 0), 30(0, 0)", "10(2, 100), 20(1, NULL)", "10(1, 100), 20(0, NULL), 30(0, NULL)"],
-  a: 0,
+  o: ["10(2, 100), 20(1, NULL)", "10(2, 100), 20(1, 0), 30(0, 0)", "10(2, 100), 20(1, NULL), 30(0, NULL)", "10(1, 100), 20(0, NULL), 30(0, NULL)"],
+  a: 2,
   sum: "SELECT 절의 스칼라 서브쿼리는 바깥 행을 지우지 않아서 부서 3개가 다 나와요. 대상이 없으면 COUNT는 0, SUM은 NULL이에요. 20번 부서는 SAL이 NULL뿐이라 SUM도 NULL이에요.",
   why: "SELECT 절에 넣은 서브쿼리(스칼라 서브쿼리)는 '값 하나'를 계산해서 그 칸을 채우는 역할이에요. 바깥 행을 걸러 내지 않아요. 결과가 없으면 그 칸만 NULL이 되고 행은 남아요.\n\n이 문제의 서브쿼리는 GROUP BY 없는 COUNT·SUM이라 늘 1행을 돌려줘요. 대상 행이 없을 때 COUNT는 0이고, SUM은 더할 값이 없어서 NULL이에요.\n\n부서마다 볼게요. 10번은 사원 1, 2번이 대상이에요. COUNT(*)는 행 수라 2이고, SUM(SAL)은 NULL을 건너뛰어 100이에요. 20번은 사원 3번 하나라 COUNT는 1이에요. 하지만 SAL이 NULL뿐이라 SUM은 NULL이에요. 30번은 사원이 없어 COUNT 0, SUM NULL이에요.\n\n**스칼라 서브쿼리는 바깥 행 수를 그대로 유지하고, 값이 없으면 NULL로 채워요.** 정답은 10(2, 100), 20(1, NULL), 30(0, NULL)이에요.",
   st: [
@@ -798,7 +798,7 @@
   ],
   res: { c: ["DNO", "CNT", "TOT"], r: [[10, 2, 100], [20, 1, null], [30, 0, null]] },
   pg: "SELECT D.DNO, (SELECT COUNT(*) FROM EMP E WHERE E.DNO = D.DNO) AS CNT, (SELECT SUM(E.SAL) FROM EMP E WHERE E.DNO = D.DNO) AS TOT FROM DEPT D ORDER BY D.DNO",
-  ox: ["정답이에요. 부서 3개가 다 나오고, COUNT는 0, SUM은 NULL로 채워져요.", "이렇게 생각하면 틀려요: 'SUM도 대상이 없거나 전부 NULL이면 0'. SUM은 더할 값이 없으면 NULL이에요. 0을 원하면 NVL로 감싸야 해요.", "이렇게 생각하면 틀려요: '서브쿼리 결과가 없으면 바깥 행도 사라진다'. 스칼라 서브쿼리는 바깥 행을 지우지 않고 칸만 채워요.", "이렇게 생각하면 틀려요: 'COUNT(*)는 SAL이 NULL인 행은 세지 않는다'. COUNT(*)는 값과 상관없이 행을 세요."],
+  ox: ["이렇게 생각하면 틀려요: '서브쿼리 결과가 없으면 바깥 행도 사라진다'. 스칼라 서브쿼리는 바깥 행을 지우지 않고 칸만 채워요.", "이렇게 생각하면 틀려요: 'SUM도 대상이 없거나 전부 NULL이면 0'. SUM은 더할 값이 없으면 NULL이에요. 0을 원하면 NVL로 감싸야 해요.", "정답이에요. 부서 3개가 다 나오고, COUNT는 0, SUM은 NULL로 채워져요.", "이렇게 생각하면 틀려요: 'COUNT(*)는 SAL이 NULL인 행은 세지 않는다'. COUNT(*)는 값과 상관없이 행을 세요."],
   trap: "스칼라 서브쿼리는 '없으면 NULL'이라 결과 행 수가 바깥 테이블 행 수와 늘 같아요. 반대로 2행 이상을 돌려주면 오류(ORA-01427)가 나요.",
   memo: "스칼라 서브쿼리: 0행 → NULL, 2행 이상 → 오류 / 바깥 행 수 유지"
 },
@@ -811,8 +811,8 @@
     { n: "ORD", c: ["OID", "CID"], r: [[1, 1], [2, 1], [3, 2], [4, 2], [5, 2], [6, null]] }
   ],
   sql: "(가) SELECT COUNT(*) FROM CUST WHERE CID IN (SELECT CID FROM ORD);\n(나) SELECT COUNT(*) FROM CUST C JOIN ORD O ON O.CID = C.CID;\n(다) SELECT COUNT(*) FROM CUST C\n     WHERE EXISTS (SELECT 1 FROM ORD O WHERE O.CID = C.CID);\n(라) SELECT COUNT(*) FROM CUST WHERE CID NOT IN (SELECT CID FROM ORD);",
-  o: ["2, 5, 2, 0", "5, 5, 5, 0", "2, 5, 2, 2", "2, 2, 2, 2"],
-  a: 0,
+  o: ["2, 2, 2, 2", "5, 5, 5, 0", "2, 5, 2, 2", "2, 5, 2, 0"],
+  a: 3,
   sum: "IN과 EXISTS는 '짝이 하나라도 있나?'만 봐서 고객 1, 2를 한 번씩만 세요. JOIN은 주문마다 행을 만들어 2 + 3 = 5건이에요. NOT IN은 ORD에 CID가 NULL인 주문이 있어서 0건이에요.",
   why: "IN과 EXISTS는 바깥 행마다 '서브쿼리에 짝이 하나라도 있는가?'만 확인해요. 짝이 몇 개든 바깥 행은 한 번만 나와요. 이런 방식을 세미 조인이라고 해요. 반면 JOIN은 짝마다 행을 하나씩 만들어서 짝이 여러 개면 바깥 행이 복제돼요.\n\n고객마다 볼게요. 고객 1은 주문 2건, 고객 2는 주문 3건, 고객 3, 4는 주문이 없어요. (가) IN과 (다) EXISTS는 짝이 있는 고객 1, 2만 한 번씩이라 2건이에요. (나) JOIN은 고객 1이 2행, 고객 2가 3행이라 5건이에요.\n\n(라) NOT IN의 서브쿼리 결과는 1, 1, 2, 2, 2, NULL이에요. 6번 주문의 CID가 NULL이에요. 고객 3은 'CID <> NULL?'이 모름이라 확인이 안 되어 빠지고, 고객 4도 마찬가지예요. 고객 1, 2는 원래 걸리는 값이에요. 그래서 0건이에요.\n\n**IN·EXISTS는 바깥 행을 복제하지 않고, JOIN은 짝 수만큼 복제해요.** 정답은 2, 5, 2, 0이에요.",
   st: [
@@ -823,7 +823,7 @@
   ],
   res: { c: ["가", "나", "다", "라"], r: [[2, 5, 2, 0]] },
   pg: "SELECT (SELECT COUNT(*) FROM CUST WHERE CID IN (SELECT CID FROM ORD)), (SELECT COUNT(*) FROM CUST C JOIN ORD O ON O.CID = C.CID), (SELECT COUNT(*) FROM CUST C WHERE EXISTS (SELECT 1 FROM ORD O WHERE O.CID = C.CID)), (SELECT COUNT(*) FROM CUST WHERE CID NOT IN (SELECT CID FROM ORD))",
-  ox: ["정답이에요. 2, 5, 2, 0이에요.", "이렇게 생각하면 틀려요: 'IN과 EXISTS도 짝 수만큼 바깥 행을 복제한다'. 이 둘은 짝이 있는지만 봐서 고객을 한 번씩만 세요.", "이렇게 생각하면 틀려요: 'NOT IN은 NULL을 무시하고 고객 3, 4를 돌려준다'. 목록에 NULL이 있으면 확인이 안 되어 0건이에요.", "이렇게 생각하면 틀려요: 'JOIN도 중복을 없애고, NOT IN도 NULL을 무시한다'. JOIN은 주문마다 행을 만들어 5건이고, NOT IN은 0건이에요."],
+  ox: ["이렇게 생각하면 틀려요: 'JOIN도 중복을 없애고, NOT IN도 NULL을 무시한다'. JOIN은 주문마다 행을 만들어 5건이고, NOT IN은 0건이에요.", "이렇게 생각하면 틀려요: 'IN과 EXISTS도 짝 수만큼 바깥 행을 복제한다'. 이 둘은 짝이 있는지만 봐서 고객을 한 번씩만 세요.", "이렇게 생각하면 틀려요: 'NOT IN은 NULL을 무시하고 고객 3, 4를 돌려준다'. 목록에 NULL이 있으면 확인이 안 되어 0건이에요.", "정답이에요. 2, 5, 2, 0이에요."],
   trap: "IN 서브쿼리를 JOIN으로 바꿔 쓰면 자식 쪽 키가 중복될 때 건수가 달라져요. 반대로 IN은 중복을 걱정할 필요가 없어요.",
   memo: "IN·EXISTS = 짝 있나만 확인(복제 없음) / JOIN = 짝마다 1행"
 },

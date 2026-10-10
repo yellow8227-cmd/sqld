@@ -6,6 +6,14 @@ const SYL = window.SYLLABUS, QSUB = window.QSUB || {}, QKILL = new Set(window.QK
 const byId = Object.fromEntries(QB.map(q => [q.id, q]));
 const subOf = q => q.sub || QSUB[q.id] || "";
 const isKill = q => !!q.kill || QKILL.has(q.id);
+// 보기 순서를 바꾸기 전(ov 없음)에 저장된 답안은 바뀐 순서로 옮겨 읽는다
+const OPTSWAP = window.OPTSWAP || {};
+function swapAns(ans, ov) {
+  if (ov || !ans) return ans || {};
+  const out = {};
+  for (const [id, v] of Object.entries(ans)) { const p = OPTSWAP[id]; out[id] = p && v === p[0] ? p[1] : p && v === p[1] ? p[0] : v; }
+  return out;
+}
 const SUBS = SYL.flatMap(x => x.items.flatMap(i => i.subs.map(n => ({ s: x.s, item: i.n, n }))));
 const view = document.getElementById("view");
 
@@ -34,7 +42,7 @@ S.bm = S.bm || { q: [], c: [] }; // 북마크: 문제 id, 개념 블록 키(주�
 (function () {
   const M = S.mock, h = S.hist && S.hist[S.hist.length - 1];
   if (M && M.done && M.res && h && !h.ids && h.sc === M.res.sc && (h.set || 0) === (M.set || 0)) {
-    Object.assign(h, { ids: M.ids, ans: M.ans, guess: M.guess || {}, sec: M.res.sec, g: M.guessed || 0 }); save();
+    Object.assign(h, { ids: M.ids, ans: M.ans, ov: M.ov, guess: M.guess || {}, sec: M.res.sec, g: M.guessed || 0 }); save();
   }
 })();
 const isAdded = q => !!S.added[q.id] && !S.log[q.id] && Date.now() - S.added[q.id] < 60 * DAY;
@@ -139,6 +147,7 @@ function toast(m) { const t = document.createElement("div"); t.className = "toas
 // 이 기능이 생기기 전에 푼 문제 되살리기 (한 번만 실행)
 // 사이트는 2026-10-04에 처음 열렸으므로, 풀이 시각이 없는 옛 기록과 오늘 시각의 기록은 모두 오늘 푼 것이다.
 // 문항 수가 아니라 푼 횟수(n)를 센다. 이미 센 수보다 많을 때만 올리고, 직접 추가(m)는 그대로 둔다.
+if (S.mock && !S.mock.ov) { S.mock.ans = swapAns(S.mock.ans); S.mock.ov = 1; save(); }
 (function () {
   if (S.dayFix) return;
   const k = "2026-10-04"; // 사이트를 연 날. 다음 날 처음 열어도 그날 기록으로 남아 '어제 N문제'가 맞게 나온다
@@ -634,7 +643,7 @@ function mockView() {
     const n = +b.dataset.set;
     const ids = n ? SETS.find(s => s.n === n).ids.filter(id => byId[id])
       : [...recommend(QB.filter(q => q.s === 1)).ids.slice(0, 10), ...recommend(QB.filter(q => q.s === 2)).ids.slice(0, 40)];
-    S.mock = { set: n, ids, ans: {}, i: 0, t0: Date.now(), done: false }; save(); mockPaper(); window.scrollTo(0, 0);
+    S.mock = { set: n, ids, ans: {}, ov: 1, i: 0, t0: Date.now(), done: false }; save(); mockPaper(); window.scrollTo(0, 0);
   });
 }
 function mockPaper() {
@@ -682,10 +691,10 @@ function submitMock() {
   M.guessed = g;
   const sc = (a + b) * 2, p = sc >= 60 && a >= 4 && b >= 16;
   M.done = true; M.res = { a, b, sc, p, sec: Math.round((Date.now() - M.t0) / 1000) };
-  S.hist.push({ d: new Date().toISOString().slice(0, 10), set: M.set || 0, sc, a, b, p, ids: M.ids, ans: M.ans, guess: M.guess || {}, sec: M.res.sec, g: g });
+  S.hist.push({ d: new Date().toISOString().slice(0, 10), set: M.set || 0, sc, a, b, p, ids: M.ids, ans: M.ans, ov: 1, guess: M.guess || {}, sec: M.res.sec, g: g });
   save(); mockResult(); window.scrollTo(0, 0);
 }
-function histAsMock(h) { return { set: h.set || 0, ids: h.ids, ans: h.ans || {}, guess: h.guess || {}, guessed: h.g || 0, res: { a: h.a, b: h.b, sc: h.sc, p: h.p, sec: h.sec || 0 } }; }
+function histAsMock(h) { return { set: h.set || 0, ids: h.ids, ans: swapAns(h.ans, h.ov), guess: h.guess || {}, guessed: h.g || 0, res: { a: h.a, b: h.b, sc: h.sc, p: h.p, sec: h.sec || 0 } }; }
 function mockResult(M, fromHist) {
   M = M || S.mock;
   const R = M.res, by = {};
