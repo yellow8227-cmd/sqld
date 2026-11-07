@@ -108,7 +108,9 @@ function errMsg(e) {
   if (/bad_login/.test(m)) return "아이디나 비밀번호가 맞지 않아요. '보기'로 비밀번호를 확인해 보세요.";
   if (/bad_id/.test(m)) return "아이디는 영문 소문자·숫자 3~20자로 써 주세요.";
   if (/bad_pw/.test(m)) return "비밀번호는 6~72자로 해 주세요.";
-  if (/network/.test(m)) return "인터넷 연결을 확인해 주세요.";
+  // 기기는 온라인인데 서버만 응답이 없으면 대개 무료 Supabase 프로젝트가 오래 안 쓰여 '일시 정지'된 경우다
+  if (/network/.test(m)) return navigator.onLine === false ? "인터넷 연결을 확인해 주세요."
+    : "로그인 서버가 응답하지 않아요. 인터넷 문제가 아니라 서버가 잠시 멈춘 상태일 수 있어요. 기록은 이 기기에 그대로 저장되니 계속 푸셔도 돼요.";
   if (/Could not find the function|PGRST202|404/.test(m)) return "서버 준비가 아직 안 됐어요(sqld-setup.sql 실행 필요). 만든 사람에게 알려 주세요.";
   return "로그인하지 못했어요: " + m.slice(0, 80);
 }
@@ -151,7 +153,7 @@ function account() {
     <div class="r"><button class="p" id="anow">지금 저장</button><button id="aout">로그아웃</button><button id="ax">닫기</button></div>
     ${lsGet("sqld.backup") ? `<div class="r"><button class="link" id="aundo">기록이 이상해요 · 직전 상태로 되돌리기</button></div>` : ""}`);
   const msg = d.querySelector("#amsg");
-  d.querySelector("#anow").onclick = async () => { meta.t = Math.max(meta.t || 0, Date.now()); await push(); msg.className = "err ok"; msg.textContent = meta.synced >= meta.t ? "저장했어요." : "저장하지 못했어요. 인터넷을 확인해 주세요."; };
+  d.querySelector("#anow").onclick = async () => { meta.t = Math.max(meta.t || 0, Date.now()); await push(); msg.className = "err ok"; msg.textContent = meta.synced >= meta.t ? "저장했어요." : "저장하지 못했어요. 서버가 응답하지 않아요(기록은 이 기기에 남아 있어요)."; };
   d.querySelector("#aout").onclick = async () => { if ((meta.t || 0) > (meta.synced || 0)) await push(); api("sq_logout", { p_token: user.token }).catch(() => {}); d.remove(); setUser(null); };
   d.querySelector("#ax").onclick = () => d.remove();
   const u = d.querySelector("#aundo");
