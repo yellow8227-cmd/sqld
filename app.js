@@ -14,6 +14,8 @@ function swapAns(ans, ov) {
   for (const [id, v] of Object.entries(ans)) { const p = OPTSWAP[id]; out[id] = p && v === p[0] ? p[1] : p && v === p[1] ? p[0] : v; }
   return out;
 }
+// 63회 대비로 새로 넣은 최신 유형 문항 (M51~, S201~)
+const is63 = q => +q.id.slice(1) >= (q.s === 1 ? 51 : 201);
 const SUBS = SYL.flatMap(x => x.items.flatMap(i => i.subs.map(n => ({ s: x.s, item: i.n, n }))));
 const view = document.getElementById("view");
 
@@ -414,7 +416,7 @@ const REASON_STYLE = { bm: "rv", wrong: "kill", ahead: "lv", review: "rv", added
 let quiz = { subj: 0, sub: "", order: "rec", kill: false, list: [], i: 0, pick: null, wrongMode: false, why: {}, counts: null };
 function poolFor() {
   if (quiz.wrongMode) return (quiz.src === "bm" ? S.bm.q : S.wrong).map(id => byId[id]).filter(Boolean);
-  return QB.filter(q => (!quiz.subj || q.s === quiz.subj) && (!quiz.kill || isKill(q)));
+  return QB.filter(q => (!quiz.subj || q.s === quiz.subj) && (!quiz.kill || isKill(q)) && (!quiz.f63 || is63(q)));
 }
 function buildList() {
   let L = poolFor().filter(q => !quiz.sub || subOf(q) === quiz.sub);
@@ -431,7 +433,7 @@ function buildList() {
 }
 function quizView(wrongMode, src) {
   src = wrongMode ? (src || quiz.src || "wrong") : "";
-  if (quiz.wrongMode !== wrongMode || quiz.src !== src) { quiz.wrongMode = wrongMode; quiz.src = src; quiz.sub = ""; quiz.subj = 0; quiz.kill = false; }
+  if (quiz.wrongMode !== wrongMode || quiz.src !== src) { quiz.wrongMode = wrongMode; quiz.src = src; quiz.sub = ""; quiz.subj = 0; quiz.kill = false; quiz.f63 = false; }
   if (src === "cbm") return conceptBmView();
   buildList(); renderQuiz();
 }
@@ -461,7 +463,7 @@ function conceptBmView() {
     const b = it.b, seen = new Set();
     html += `<section class="panel"><div class="spread"><span class="pill sub">${esc(TOPICS[it.tp].n)}</span><button class="link" data-concept="${it.tp}">개념 전체 보기 →</button></div>
       <div class="blk"><div class="blk-h"><h3>${esc(b.h)}</h3>${bmBtn("c", it.k)}</div>
-        ${b.code ? `<pre class="inline">${sqlHL(b.code)}</pre>` : ""}${b.t ? `<p>${md(b.t, seen)}</p>` : ""}${b.tb ? tbl(b.tb, "", true) : ""}${b.memo ? `<span class="memo"><i>암기</i>${esc(b.memo)}</span>` : ""}</div></section>`;
+        ${b.code ? `<pre class="inline">${sqlHL(narrowCode(b.code))}</pre>` : ""}${b.t ? `<p>${md(b.t, seen)}</p>` : ""}${b.tb ? tbl(b.tb, "", true) : ""}${b.memo ? `<span class="memo"><i>암기</i>${esc(b.memo)}</span>` : ""}</div></section>`;
   }
   view.innerHTML = html; bindReviewSeg(); bindConceptLinks();
 }
@@ -487,7 +489,7 @@ function renderQuiz() {
     </div>
     ${!wm && quiz.counts ? `<details class="plan"><summary><span class="pill kill">다시 도전 ${quiz.counts.wrong}</span><span class="pill rv">복습 ${quiz.counts.review}</span><span class="pill new">NEW ${quiz.counts.added}</span><span class="pill lv">처음 ${quiz.counts.fresh}</span><span class="small muted">추천 순서란?</span></summary>
       <p class="small muted">무작위가 아니라 내 기록을 보고 고른다. 복습할 때가 된 오답(다시 도전)을 먼저 내고, 새 문제는 정답률이 낮은 세부항목·고오답 유형·자주 나오는 주제 순으로 낸다. 새 문제 2개마다 복습을 1개씩 섞는다. 틀린 문제는 4문제 뒤에 한 번 더, 다음 날 또 나오고, 맞힌 문제는 3·7·14·30일 뒤에 다시 나온다.</p></details>` : ""}
-    ${wm ? "" : `<div class="row"><button class="toggle" id="f-kill" aria-pressed="${quiz.kill}"><span class="box">${quiz.kill ? "✓" : ""}</span>고오답 유형만 풀기 (${QB.filter(isKill).length}문항)</button></div>`}
+    ${wm ? "" : `<div class="row"><button class="toggle" id="f-kill" aria-pressed="${quiz.kill}"><span class="box">${quiz.kill ? "✓" : ""}</span>고오답 유형만 풀기 (${QB.filter(isKill).length}문항)</button><button class="toggle" id="f-63" aria-pressed="${!!quiz.f63}"><span class="box">${quiz.f63 ? "✓" : ""}</span>63회 대비 최신 유형만 (${QB.filter(is63).length}문항)</button></div>`}
   </section>`;
   if (!q) {
     html += `<section class="panel"><p class="empty">${wm ? (quiz.src === "bm" ? "북마크한 문제가 없다. 문제 위의 ☆ 북마크를 누르면 여기에 모인다." : "오답노트가 비어 있다. 문제풀이에서 틀린 문제가 여기에 모인다.") : "조건에 맞는 문제가 없다. 필터를 바꿔 보자."}</p></section>`;
@@ -543,14 +545,20 @@ function bindQuizFilters() {
   const fs = document.getElementById("f-sub"); if (fs) fs.onchange = () => { quiz.sub = fs.value; buildList(); renderQuiz(); };
   const fo = document.getElementById("f-order"); if (fo) fo.onchange = () => { quiz.order = fo.value; buildList(); renderQuiz(); };
   const fk = document.getElementById("f-kill"); if (fk) fk.onclick = () => { quiz.kill = !quiz.kill; quiz.sub = ""; buildList(); renderQuiz(); };
+  const f6 = document.getElementById("f-63"); if (f6) f6.onclick = () => { quiz.f63 = !quiz.f63; quiz.sub = ""; buildList(); renderQuiz(); };
 }
 
 // ── 개념정리
-const spark = tp => { const d = TREND.data[tp] || [], mx = 6; return `<span class="spark" title="55~61회 복원 기출 출제 수: ${d.join(", ")}">${d.map((v, i) => `<i class="${i === d.length - 1 ? "last" : ""}" style="height:${Math.max(2, v / mx * 18)}px"></i>`).join("")}</span>`; };
+const spark = tp => { const d = TREND.data[tp] || [], mx = 6; return `<span class="spark" title="55~62회 복원 기출 출제 수: ${d.join(", ")}">${d.map((v, i) => `<i class="${i === d.length - 1 ? "last" : ""}" style="height:${Math.max(2, v / mx * 18)}px"></i>`).join("")}</span>`; };
 function conceptView() {
   const toc = s => CONCEPTS.filter(c => TOPICS[c.tp].s === s).map(c => `<a href="#c-${c.tp}">${esc(TOPICS[c.tp].n)}<small>문제 ${QB.filter(q => q.tp === c.tp).length}개</small></a>`).join("");
-  let html = `<section class="panel frame"><h2>시험 범위 전체 설계도</h2>
-    <p class="lead">주제마다 핵심 표와 암기 고리를 정리했다. 읽고 나서 바로 그 주제 문제로 넘어가자. 막대는 55~61회 복원 기출 출제 수(주황 = 61회)다.</p>
+  const weak = [["entity", "발생시점 엔터티"], ["norm", "함수 종속·정규화"], ["rel", "Barker vs IE 표기법"], ["trap", "시험 직전 한 줄 규칙"], ["nullfn", "ISNULL·NULL 함수"], ["ddl", "TRUNCATE·ALTER"], ["regex", "REGEXP_LIKE 기초부터"]];
+  let html = `<section class="panel frame d63"><div class="eyebrow">63회 대비 · 11월 14일</div><h2>약점 집중 개념</h2>
+    <p class="lead">기출 유형 결과에서 약했던 부분을 보강했다. 바로가기를 눌러 읽고, 아래 '이 주제 문제 풀기'로 확인하자.</p>
+    <div class="toc">${weak.map(([tp, n]) => `<a href="#c-${tp}">${esc(n)}<small>${esc(TOPICS[tp].n)}</small></a>`).join("")}</div>
+  </section>
+  <section class="panel frame"><h2>시험 범위 전체 설계도</h2>
+    <p class="lead">주제마다 핵심 표와 암기 고리를 정리했다. 읽고 나서 바로 그 주제 문제로 넘어가자. 막대는 55~62회 복원 기출 출제 수(주황 = 62회)다.</p>
     <div class="toc-group"><h3>제1과목 데이터 모델링의 이해 · 10문항</h3><div class="toc">${toc(1)}</div></div>
     <div class="toc-group"><h3>제2과목 SQL 기본 및 활용 · 40문항</h3><div class="toc">${toc(2)}</div></div>
   </section>`;
@@ -558,9 +566,9 @@ function conceptView() {
     const seen = new Set(), n = QB.filter(q => q.tp === c.tp).length;
     html += `<section class="panel concept" id="c-${c.tp}">
       <div class="chead"><div><div class="eyebrow">${TOPICS[c.tp].s}과목</div><h2>${esc(TOPICS[c.tp].n)}</h2></div>
-        <div class="freq">복원 기출 55→61회 ${spark(c.tp)}</div></div>
+        ${TREND.data[c.tp] ? `<div class="freq">복원 기출 55→62회 ${spark(c.tp)}</div>` : ""}</div>
       ${c.b.map(b => `<div class="blk"><div class="blk-h"><h3>${esc(b.h)}</h3>${bmBtn("c", c.tp + "|" + b.h)}</div>
-        ${b.code ? `<pre class="inline">${sqlHL(b.code)}</pre>` : ""}
+        ${b.code ? `<pre class="inline">${sqlHL(narrowCode(b.code))}</pre>` : ""}
         ${b.t ? `<p>${md(b.t, seen)}</p>` : ""}
         ${b.tb ? tbl(b.tb, "", true) : ""}
         ${b.memo ? `<span class="memo"><i>암기</i>${esc(b.memo)}</span>` : ""}</div>`).join("")}
@@ -574,13 +582,13 @@ function conceptView() {
 function bindPractice() {
   view.querySelectorAll("[data-practice]").forEach(b => b.onclick = () => {
     const tp = b.dataset.practice;
-    quiz.wrongMode = false; quiz.subj = TOPICS[tp].s; quiz.sub = ""; quiz.kill = false; quiz.order = "seq";
+    quiz.wrongMode = false; quiz.subj = TOPICS[tp].s; quiz.sub = ""; quiz.kill = false; quiz.f63 = false; quiz.order = "seq";
     setMode("quiz", true);
     buildList(); quiz.list = quiz.list.filter(id => byId[id].tp === tp); renderQuiz(); window.scrollTo(0, 0);
   });
   view.querySelectorAll("[data-sub]").forEach(b => b.onclick = () => {
     const sub = b.dataset.sub, s = SUBS.find(x => x.n === sub).s;
-    quiz.wrongMode = false; quiz.subj = s; quiz.sub = sub; quiz.kill = false; quiz.order = "seq";
+    quiz.wrongMode = false; quiz.subj = s; quiz.sub = sub; quiz.kill = false; quiz.f63 = false; quiz.order = "seq";
     setMode("quiz", true); buildList(); renderQuiz(); window.scrollTo(0, 0);
   });
 }
@@ -624,7 +632,7 @@ function cardView() {
 // ── 모의고사 (공식 구성: 1과목 10 + 2과목 40, 90분, 문항당 2점)
 let tick = null;
 const LIMIT = 90 * 60 * 1000;
-const setName = n => n ? `모의고사 ${n}회` : "맞춤 모의고사";
+const setName = n => n ? ((SETS.find(s => s.n === n) || {}).name || `모의고사 ${n}회`) : "맞춤 모의고사";
 function mockView() {
   clearInterval(tick); document.getElementById("exambar").hidden = true;
   const M = S.mock;
@@ -733,7 +741,7 @@ function trendView() {
   }).join("")).join("")).join("");
   const R = TREND.rounds, mx = 6;
   const shade = v => { if (!v) return ""; const a = Math.min(1, v / mx); return `background:color-mix(in srgb,var(--acc) ${Math.round(12 + a * 70)}%,var(--panel));${a > .55 ? "color:#fff;" : ""}`; };
-  const rowsFor = s => Object.keys(TOPICS).filter(k => TOPICS[k].s === s).map(k => {
+  const rowsFor = s => Object.keys(TOPICS).filter(k => TOPICS[k].s === s && TREND.data[k]).map(k => {
     const d = TREND.data[k] || [], sum = d.reduce((a, b) => a + b, 0);
     return `<tr><td class="t">${esc(TOPICS[k].n)}</td>${d.map(v => `<td class="c" style="${shade(v)}">${v || ""}</td>`).join("")}<td class="sum">${sum}</td></tr>`;
   }).join("");
@@ -749,13 +757,13 @@ function trendView() {
     <p class="lead">공식 출제기준의 세부항목마다 이 앱에 몇 문제가 있는지 보여 준다. 세부항목 이름을 누르면 그 문제만 풀 수 있다.</p>
     <div class="scroll"><table class="cov"><thead><tr><th>세부항목</th><th>문항</th><th>고오답</th></tr></thead><tbody>${cov}</tbody></table></div>
   </section>
-  <section class="panel"><div class="eyebrow">참고 자료 · 복원 기출 기반</div><h2>55~61회 주제별 출제 지도</h2>
+  <section class="panel"><div class="eyebrow">참고 자료 · 복원 기출 기반</div><h2>55~62회 주제별 출제 지도</h2>
     <p class="lead">${esc(TREND.src)} 칸이 진할수록 많이 나왔다.</p>
     <div class="scroll heat"><table><thead><tr><th>주제</th>${R.map(r => `<th>${r}회</th>`).join("")}<th>합</th></tr></thead><tbody>
       <tr class="sep"><td colspan="${R.length + 2}">제1과목 · 데이터 모델링의 이해</td></tr>${rowsFor(1)}
       <tr class="sep"><td colspan="${R.length + 2}">제2과목 · SQL 기본 및 활용</td></tr>${rowsFor(2)}
     </tbody></table></div>
-    <p class="why">2과목은 'NULL을 어떻게 다루는가'가 가장 큰 축이다. NOT IN·집계 함수·아우터 조인·정렬 위치까지 NULL이 걸린 문항이 매 회 여러 개 나온다. 61회는 서브쿼리와 TOP-N이 늘고 정규표현식이 빠졌다. 1과목은 식별자·관계·엔터티가 절반 이상이다.</p>
+    <p class="why">2과목은 'NULL을 어떻게 다루는가'가 가장 큰 축이다. NOT IN·집계 함수·아우터 조인·정렬 위치까지 NULL이 걸린 문항이 매 회 여러 개 나온다. 62회는 조인(6문항)·집계(5문항)·DML·DDL이 많았고, 정규표현식은 REGEXP_COUNT로 다시 나와 60~62회 3회 연속 출제됐다. 문항의 절반가량이 SQL 결과를 직접 계산하는 문제였다. 1과목은 식별자·관계·엔터티가 절반 이상이다.</p>
   </section>
   <section class="panel frame"><div class="eyebrow">다음 시험 우선순위</div><h2>먼저 잡을 유형</h2>
     <ol class="focus">${TREND.focus.map(f => { const n = QB.filter(q => q.tp === f.tp).length; return `<li><div><b>${esc(TOPICS[f.tp].n)}</b><span>${esc(f.why)}</span>${n ? `<div class="row" style="margin-top:8px"><button class="btn sm acc" data-practice="${f.tp}">문제 ${n}개 풀기 →</button></div>` : ""}</div></li>`; }).join("")}</ol>

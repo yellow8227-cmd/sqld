@@ -237,7 +237,7 @@ tr.hl td{background:var(--hl)}
 .step h4{margin:0;font-size:15.5px;line-height:1.5;display:flex;gap:8px;align-items:baseline}
 .step h4::before{content:counter(st);flex:none;font-family:var(--mono);font-size:12px;font-weight:700;color:var(--panel);background:var(--blue);min-width:20px;height:20px;display:inline-grid;place-items:center}
 pre.code{margin:0;background:var(--code);color:var(--code-ink);border:1px solid var(--ink);padding:12px 14px;overflow-x:auto;font-family:var(--mono);font-size:14px;line-height:1.75;tab-size:2}
-@media (max-width:640px){pre.code{white-space:pre-wrap;overflow-wrap:break-word;font-size:13.5px}}
+@media (max-width:640px){pre.inline{white-space:pre-wrap;overflow-wrap:break-word}pre.code{white-space:pre-wrap;overflow-wrap:break-word;font-size:13.5px}}
 pre.code .k{color:var(--k);font-weight:600}pre.code .s{color:var(--s)}pre.code .n{color:var(--n)}pre.code .c{color:#a9c6de;font-style:normal}
 .note{font-size:15.5px;color:var(--muted);white-space:pre-line;line-height:1.8}
 .note.tree{margin:0;font-family:var(--mono);font-size:14px;white-space:pre;overflow-x:auto;color:var(--ink);background:var(--soft);padding:10px 12px;border:1px solid var(--line);line-height:1.6}
@@ -273,7 +273,7 @@ pre.code .k{color:var(--k);font-weight:600}pre.code .s{color:var(--s)}pre.code .
 .concept{scroll-margin-top:130px}
 .blk{display:flex;flex-direction:column;gap:10px;padding-top:18px;border-top:1px dashed var(--line)}
 .blk:first-of-type{border-top:0;padding-top:0}
-.blk p{font-size:16.5px;line-height:1.85}
+.blk p{font-size:16.5px;line-height:1.85;white-space:pre-line}
 .chead{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}
 .freq{font-size:12.5px;color:var(--muted);display:flex;gap:6px;align-items:center}
 .spark{display:inline-flex;gap:2px;align-items:flex-end;height:18px}
@@ -385,6 +385,12 @@ footer{font-size:13.5px;color:var(--muted);line-height:1.8;display:flex;flex-dir
 <script src="data/q8.js"></script>
 <script src="data/q9.js"></script>
 <script src="data/q10.js"></script>
+<script src="data/q11.js"></script>
+<script src="data/q12.js"></script>
+<script src="data/q13.js"></script>
+<script src="data/q14.js"></script>
+<script src="data/q15.js"></script>
+<script src="data/q16.js"></script>
 <script src="data/sets.js"></script>
 <script src="data/optswap.js"></script>
 <script src="app.js"></script>
